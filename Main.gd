@@ -5,6 +5,7 @@ var screen_size = Vector2(720, 1280)
 var player_position = Vector2.ZERO
 var player_speed = 350.0
 var coins: Array[Vector2] = []
+var mud_puddles: Array[Vector2] = []
 
 var score = 0
 var best_score = 0
@@ -17,6 +18,9 @@ var is_moving = false
 
 var particles: Array[Dictionary] = []
 var floating_texts: Array[Dictionary] = []
+
+var movement_velocity = Vector2.ZERO
+var on_mud = false
 
 var play_button = Rect2()
 var pause_button = Rect2()
@@ -177,12 +181,18 @@ func toggle_music():
 func start_game():
 	score = 0
 	coins.clear()
+	mud_puddles.clear()
 	particles.clear()
 	floating_texts.clear()
 
 	player_position = screen_size / 2
 	touch_target = null
 	is_moving = false
+	movement_velocity = Vector2.ZERO
+	on_mud = false
+
+	for i in range(4):
+		spawn_mud_puddle()
 
 	for i in range(10):
 		spawn_coin()
@@ -212,6 +222,25 @@ func spawn_coin():
 	)
 
 	coins.append(coin)
+
+
+# MUD PUDDLES
+
+func spawn_mud_puddle():
+	var puddle = Vector2(
+		randf_range(90, screen_size.x - 90),
+		randf_range(470, screen_size.y - 110)
+	)
+
+	mud_puddles.append(puddle)
+
+
+func is_position_on_mud(pos: Vector2) -> bool:
+	for puddle in mud_puddles:
+		if pos.distance_to(puddle) < 65:
+			return true
+
+	return false
 
 
 # COLLECTION EFFECTS
@@ -281,18 +310,44 @@ func _process(delta):
 		if player_position.distance_to(touch_target) > 10:
 			direction = player_position.direction_to(touch_target)
 
-	is_moving = direction.length() > 0.05
+	on_mud = is_position_on_mud(player_position)
+
+	if on_mud:
+		# Slippery movement
+		if movement_velocity.length() < 20 and direction.length() > 0.05:
+			movement_velocity = direction * player_speed * 0.7
+
+		movement_velocity += direction * 260.0 * delta
+
+		# Keep sliding even when steering stops
+		movement_velocity *= pow(0.985, delta * 60.0)
+
+		movement_velocity = movement_velocity.limit_length(620.0)
+
+	else:
+		# Normal movement
+		movement_velocity = direction * player_speed
+
+	is_moving = movement_velocity.length() > 20
 
 	if is_moving:
 		animation_time += delta * 12.0
 	else:
 		animation_time += delta * 2.0
 
-	player_position += direction * player_speed * delta
+	player_position += movement_velocity * delta
+
+	# Screen boundaries
+	if player_position.x < 40 or player_position.x > screen_size.x - 40:
+		movement_velocity.x = 0
+
+	if player_position.y < 140 or player_position.y > screen_size.y - 45:
+		movement_velocity.y = 0
 
 	player_position.x = clampf(player_position.x, 40, screen_size.x - 40)
 	player_position.y = clampf(player_position.y, 140, screen_size.y - 45)
 
+	# Coin collection
 	for i in range(coins.size() - 1, -1, -1):
 		if player_position.distance_to(coins[i]) < 50:
 			var collected_position = coins[i]
@@ -387,13 +442,13 @@ func handle_press(pos):
 
 # CHARACTER
 
-func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
+func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0, rotation: float = 0.0):
 	var swing = 0.0
 
 	if running:
 		swing = sin(animation_time) * 13.0
 
-	draw_set_transform(pos, 0.0, Vector2.ONE * scale_factor)
+	draw_set_transform(pos, rotation, Vector2.ONE * scale_factor)
 
 	draw_line(Vector2(-8, 17), Vector2(-10 + swing, 34), Color("#202638"), 10)
 	draw_line(Vector2(8, 17), Vector2(10 - swing, 34), Color("#202638"), 10)
@@ -451,6 +506,57 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
 	draw_arc(Vector2(2, -23), 5, 0.2, PI - 0.2, 12, Color("#9b5142"), 1.5)
 
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+# MUD DRAWING
+
+func draw_mud_puddles():
+	for puddle in mud_puddles:
+		# Outer shadow
+		draw_circle(
+			puddle + Vector2(0, 7),
+			66,
+			Color("#476b38")
+		)
+
+		# Dark muddy edge
+		draw_circle(
+			puddle,
+			62,
+			Color("#65452e")
+		)
+
+		# Mud center
+		draw_circle(
+			puddle,
+			53,
+			Color("#805332")
+		)
+
+		draw_circle(
+			puddle + Vector2(-15, -8),
+			23,
+			Color("#96653b")
+		)
+
+		draw_circle(
+			puddle + Vector2(20, 15),
+			17,
+			Color("#6b452b")
+		)
+
+		# Mud shine
+		draw_circle(
+			puddle + Vector2(-18, -20),
+			6,
+			Color("#c49a65")
+		)
+
+		draw_circle(
+			puddle + Vector2(23, -12),
+			4,
+			Color("#c49a65")
+		)
 
 
 # COLLECTION EFFECT DRAWING
@@ -628,12 +734,30 @@ func _draw():
 		)
 
 	elif state == "playing" or state == "paused":
+		draw_mud_puddles()
+
 		for coin in coins:
 			draw_circle(coin, 20, Color("#f1c40f"))
 			draw_circle(coin, 12, Color("#ffe680"))
 
-		draw_character(player_position, is_moving, 1.0)
+		var character_tilt = 0.0
+
+		if on_mud:
+			character_tilt = clampf(movement_velocity.x / 620.0, -1.0, 1.0) * 0.25
+
+		draw_character(player_position, is_moving, 1.0, character_tilt)
 		draw_collection_effects()
+
+		if on_mud:
+			draw_string(
+				ThemeDB.fallback_font,
+				player_position + Vector2(-55, -75),
+				"SLIPPING!",
+				HORIZONTAL_ALIGNMENT_CENTER,
+				110,
+				20,
+				Color("#ffe66d")
+			)
 
 		draw_string(
 			ThemeDB.fallback_font,
