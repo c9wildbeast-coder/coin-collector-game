@@ -832,9 +832,9 @@ func generate_maze():
 
 	# Smaller cells show more of the maze while keeping corridors clear.
 	maze_cell_size = clampf(
-		screen_size.x * 0.075,
-		38.0,
-		54.0
+		screen_size.x * 0.15,
+		90.0,
+		110.0
 	)
 
 	maze_origin = Vector2.ZERO
