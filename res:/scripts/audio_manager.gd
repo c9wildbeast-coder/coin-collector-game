@@ -12,6 +12,9 @@ func _ready():
 
 
 func setup_audio():
+	if coin_sound_player != null:
+		return
+
 	coin_sound_player = AudioStreamPlayer.new()
 	button_sound_player = AudioStreamPlayer.new()
 	music_player = AudioStreamPlayer.new()
