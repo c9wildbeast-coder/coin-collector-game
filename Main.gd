@@ -21,6 +21,11 @@ var transition_alpha = 1.0
 var ui_button_scale = 1.0
 var ui_tween: Tween
 
+# Animated HUD counters
+var display_score = 0.0
+var display_wallet = 0.0
+var hud_pulse_timer = 0.0
+
 # Virtual joystick
 var joystick_center = Vector2.ZERO
 var joystick_vector = Vector2.ZERO
@@ -96,6 +101,10 @@ func _ready():
 	screen_size = get_viewport_rect().size
 	load_best_score()
 	load_shop_data()
+
+	display_score = float(score)
+	display_wallet = float(wallet_coins)
+
 	update_buttons()
 	setup_audio()
 	begin_fade()
@@ -357,6 +366,8 @@ func start_game():
 	score = 0
 	lives = 3
 
+	display_score = 0.0
+
 	coins.clear()
 	rocks.clear()
 	particles.clear()
@@ -546,6 +557,7 @@ func collect_coin(index: int):
 
 	score += 1
 	wallet_coins += 1
+	hud_pulse_timer = 0.18
 
 	if score > best_score:
 		best_score = score
@@ -629,10 +641,136 @@ func draw_joystick():
 	)
 
 
+# MODERN HUD
+
+func draw_hud_panel(rect: Rect2, panel_color: Color):
+	var style = StyleBoxFlat.new()
+	style.bg_color = panel_color
+	style.corner_radius_top_left = 18
+	style.corner_radius_top_right = 18
+	style.corner_radius_bottom_left = 18
+	style.corner_radius_bottom_right = 18
+	style.border_width_left = 2
+	style.border_width_right = 2
+	style.border_width_top = 2
+	style.border_width_bottom = 2
+	style.border_color = Color(1, 1, 1, 0.45)
+
+	draw_style_box(style, rect)
+
+
+func draw_hud():
+	var score_panel = Rect2(20, 25, 295, 125)
+	var lives_panel = Rect2(330, 25, 170, 65)
+
+	var pulse = 1.0
+
+	if hud_pulse_timer > 0:
+		pulse = 1.0 + sin(hud_pulse_timer * 30.0) * 0.04
+
+	# Score and wallet panel
+	draw_hud_panel(
+		score_panel,
+		Color(0.05, 0.20, 0.25, 0.88)
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(43, 59),
+		"COINS COLLECTED",
+		HORIZONTAL_ALIGNMENT_LEFT,
+		-1,
+		17,
+		Color("#bcecff")
+	)
+
+	draw_set_transform(
+		Vector2(43, 101),
+		0.0,
+		Vector2(pulse, pulse)
+	)
+
+	draw_circle(Vector2(9, -9), 12, Color("#d99b00"))
+	draw_circle(Vector2(9, -9), 9, Color("#ffe66d"))
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(30, 0),
+		str(int(round(display_score))),
+		HORIZONTAL_ALIGNMENT_LEFT,
+		-1,
+		31,
+		Color.WHITE
+	)
+
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+	draw_line(
+		Vector2(42, 112),
+		Vector2(293, 112),
+		Color(1, 1, 1, 0.2),
+		2
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(43, 139),
+		"WALLET: " + str(int(round(display_wallet))) + " COINS",
+		HORIZONTAL_ALIGNMENT_LEFT,
+		-1,
+		19,
+		Color("#ffe66d")
+	)
+
+	# Lives panel
+	draw_hud_panel(
+		lives_panel,
+		Color(0.25, 0.08, 0.12, 0.88)
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(348, 52),
+		"LIVES",
+		HORIZONTAL_ALIGNMENT_LEFT,
+		-1,
+		17,
+		Color("#ffc5c5")
+	)
+
+	for i in range(max_lives):
+		var heart_position = Vector2(350 + i * 27, 76)
+		var heart_color = Color("#ff5252") if i < lives else Color("#65454b")
+
+		draw_string(
+			ThemeDB.fallback_font,
+			heart_position,
+			"♥",
+			HORIZONTAL_ALIGNMENT_LEFT,
+			-1,
+			23,
+			heart_color
+		)
+
+
 # GAME LOOP
 
 func _process(delta):
 	animation_time += delta
+
+	display_score = lerpf(
+		display_score,
+		float(score),
+		minf(delta * 12.0, 1.0)
+	)
+
+	display_wallet = lerpf(
+		display_wallet,
+		float(wallet_coins),
+		minf(delta * 8.0, 1.0)
+	)
+
+	hud_pulse_timer = maxf(0.0, hud_pulse_timer - delta)
 
 	if state != "playing":
 		queue_redraw()
@@ -1249,35 +1387,8 @@ func _draw():
 
 		draw_collection_effects()
 
-		draw_string(
-			ThemeDB.fallback_font,
-			Vector2(25, 65),
-			"COINS: " + str(score),
-			HORIZONTAL_ALIGNMENT_LEFT,
-			-1,
-			34,
-			Color.WHITE
-		)
-
-		draw_string(
-			ThemeDB.fallback_font,
-			Vector2(25, 100),
-			"WALLET: " + str(wallet_coins),
-			HORIZONTAL_ALIGNMENT_LEFT,
-			-1,
-			22,
-			Color("#ffe66d")
-		)
-
-		draw_string(
-			ThemeDB.fallback_font,
-			Vector2(25, 140),
-			"LIVES: " + "♥".repeat(lives),
-			HORIZONTAL_ALIGNMENT_LEFT,
-			-1,
-			30,
-			Color("#ff5555")
-		)
+		# New modern HUD
+		draw_hud()
 
 		draw_music_button()
 		draw_button(pause_button, "II", Color("#2980b9"))
