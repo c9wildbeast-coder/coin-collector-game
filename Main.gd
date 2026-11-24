@@ -111,6 +111,10 @@ var maze_player_cell = Vector2i(1, 1)
 var maze_exit_cell = Vector2i.ZERO
 var maze_player_position = Vector2.ZERO
 
+# Remember the previous exit so the next maze can use
+# a different exit location.
+var maze_previous_exit_cell = Vector2i(-1, -1)
+
 var maze_move_cooldown = 0.0
 var maze_reward = 0
 var maze_vision_radius = 99
@@ -835,19 +839,42 @@ func generate_maze():
 
 			stack.append(next)
 
-	# The exit must be on a cell that the generator has carved.
-	maze_exit_cell = Vector2i(maze_cols - 2, maze_rows - 2)
+	# Collect all carved maze cells that can be used as exits.
+	# Every odd/odd cell is part of the DFS-carved maze.
+	var exit_candidates: Array[Vector2i] = []
 
-	if maze_exit_cell.x % 2 == 0:
-		maze_exit_cell.x -= 1
+	for y in range(1, maze_rows - 1, 2):
+		for x in range(1, maze_cols - 1, 2):
+			if maze_grid[y][x] == 0:
+				var candidate = Vector2i(x, y)
 
-	if maze_exit_cell.y % 2 == 0:
-		maze_exit_cell.y -= 1
+				# Never place the exit on the starting cell.
+				if candidate != start:
+					exit_candidates.append(candidate)
 
-	maze_grid[maze_exit_cell.y][maze_exit_cell.x] = 0
+	# Avoid reusing the previous exit location.
+	# If there are other candidates, remove the previous one.
+	if exit_candidates.size() > 1:
+		exit_candidates.erase(maze_previous_exit_cell)
+
+	# Select a random valid exit.
+	if not exit_candidates.is_empty():
+		maze_exit_cell = exit_candidates[
+			randi() % exit_candidates.size()
+		]
+	else:
+		# Safe fallback in case no candidates are available.
+		maze_exit_cell = Vector2i(maze_cols - 2, maze_rows - 2)
+
+		if maze_exit_cell.x % 2 == 0:
+			maze_exit_cell.x -= 1
+
+		if maze_exit_cell.y % 2 == 0:
+			maze_exit_cell.y -= 1
+
+	maze_previous_exit_cell = maze_exit_cell
 
 	# Add extra openings to create loops and alternate routes.
-	# More openings are added as levels become harder.
 	var extra_openings = 0
 
 	if maze_level <= 20:
@@ -2049,7 +2076,6 @@ func draw_maze():
 			Color("#14532d")
 		)
 
-	# Player
 	draw_character(
 		maze_player_position,
 		false,
