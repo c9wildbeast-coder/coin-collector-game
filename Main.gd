@@ -1,3 +1,4 @@
+
 extends Node2D
 
 # =====================================================
@@ -114,6 +115,9 @@ var maze_player_position = Vector2.ZERO
 var maze_move_target = Vector2.ZERO
 var maze_is_moving = false
 var maze_move_speed = 260.0
+
+# Camera
+var maze_camera_offset = Vector2.ZERO
 
 var maze_reward = 0
 var maze_vision_radius = 99
@@ -709,6 +713,7 @@ func start_maze():
 	stop_joystick()
 	reveal_maze_area(maze_player_cell)
 
+	update_maze_camera()
 	change_state("maze_playing")
 
 
@@ -761,7 +766,6 @@ func generate_maze():
 		Vector2i(2, 0)
 	]
 
-	# Generate connected maze corridors.
 	while not stack.is_empty():
 		var current = stack.back()
 		var neighbors: Array[Vector2i] = []
@@ -788,11 +792,9 @@ func generate_maze():
 			maze_grid[next.y][next.x] = 0
 			stack.append(next)
 
-	# FIXED EXIT: always at the far bottom-right area.
-	# It does not change between levels.
+	# Fixed exit at the far bottom-right area.
 	maze_exit_cell = Vector2i(maze_cols - 2, maze_rows - 2)
 
-	# Add alternate routes and loops as levels increase.
 	var extra_openings = 0
 
 	if maze_level <= 20:
@@ -809,22 +811,18 @@ func generate_maze():
 	for i in range(extra_openings):
 		open_random_maze_wall()
 
-	# Ensure the starting point and exit remain open.
 	maze_grid[1][1] = 0
 	maze_grid[maze_exit_cell.y][maze_exit_cell.x] = 0
 
-	maze_cell_size = minf(
-		(screen_size.x - 40.0) / maze_cols,
-		(screen_size.y - 370.0) / maze_rows
+	# Larger cells create a zoomed-in maze view.
+	maze_cell_size = clampf(
+		screen_size.x * 0.125,
+		50.0,
+		90.0
 	)
 
-	var maze_width = maze_cols * maze_cell_size
-	var maze_height = maze_rows * maze_cell_size
-
-	maze_origin = Vector2(
-		(screen_size.x - maze_width) / 2.0,
-		205 + (screen_size.y - 350.0 - maze_height) / 2.0
-	)
+	# Maze world coordinates start from the top-left.
+	maze_origin = Vector2.ZERO
 
 
 func open_random_maze_wall():
@@ -858,6 +856,25 @@ func maze_cell_center(cell: Vector2i) -> Vector2:
 		(cell.x + 0.5) * maze_cell_size,
 		(cell.y + 0.5) * maze_cell_size
 	)
+
+
+# =====================================================
+# MAZE CAMERA
+# =====================================================
+
+func get_maze_viewport_rect() -> Rect2:
+	return Rect2(
+		Vector2(0, 190),
+		Vector2(screen_size.x, maxf(200.0, screen_size.y - 430.0))
+	)
+
+
+func update_maze_camera():
+	var viewport_rect = get_maze_viewport_rect()
+	var viewport_center = viewport_rect.position + viewport_rect.size / 2.0
+
+	# Keep the player centered while the maze moves around them.
+	maze_camera_offset = viewport_center - maze_player_position
 
 
 # =====================================================
@@ -1167,6 +1184,7 @@ func _process(delta):
 
 	if state == "maze_playing":
 		update_maze(delta)
+		update_maze_camera()
 		queue_redraw()
 		return
 
@@ -1880,18 +1898,17 @@ func draw_item_buttons():
 
 
 # =====================================================
-# MAZE DRAWING - THIN CONNECTED WALL STYLE
+# MAZE DRAWING - CAMERA VIEW
 # =====================================================
 
 func draw_maze_wall_cell(cell: Vector2i):
-	var center = maze_cell_center(cell)
+	var center = maze_cell_center(cell) + maze_camera_offset
 	var half = maze_cell_size * 0.5
 	var thickness = maxf(3.0, maze_cell_size * 0.13)
 
 	var wall_color = Color("#344d68")
 	var highlight_color = Color("#607c98")
 
-	# Draw a small center joint.
 	draw_rect(
 		Rect2(
 			center - Vector2(thickness, thickness) * 0.5,
@@ -1900,7 +1917,6 @@ func draw_maze_wall_cell(cell: Vector2i):
 		wall_color
 	)
 
-	# Connect the wall to adjacent wall cells.
 	if cell.x > 0 and maze_grid[cell.y][cell.x - 1] == 1:
 		draw_rect(
 			Rect2(
@@ -1937,7 +1953,6 @@ func draw_maze_wall_cell(cell: Vector2i):
 			wall_color
 		)
 
-	# Small highlight on the wall joint.
 	draw_rect(
 		Rect2(
 			center - Vector2(thickness * 0.25, thickness * 0.25),
@@ -1948,23 +1963,34 @@ func draw_maze_wall_cell(cell: Vector2i):
 
 
 func draw_maze():
+	var viewport_rect = get_maze_viewport_rect()
+
+	# Dark background outside the maze camera.
 	draw_rect(
 		Rect2(Vector2.ZERO, screen_size),
-		Color("#e9edf2")
+		Color("#101c2b")
 	)
 
-	# Draw open corridors first.
+	# Visible maze viewing area.
+	draw_rect(
+		viewport_rect,
+		Color("#dce5ed")
+	)
+
+	# Draw only cells inside the camera view.
 	for y in range(maze_rows):
 		for x in range(maze_cols):
 			var cell = Vector2i(x, y)
 
 			var cell_rect = Rect2(
-				maze_origin + Vector2(
-					x * maze_cell_size,
-					y * maze_cell_size
-				),
+				maze_origin
+				+ Vector2(x * maze_cell_size, y * maze_cell_size)
+				+ maze_camera_offset,
 				Vector2(maze_cell_size, maze_cell_size)
 			)
+
+			if not cell_rect.intersects(viewport_rect):
+				continue
 
 			if not is_maze_cell_visible(cell):
 				draw_rect(cell_rect, Color("#182536"))
@@ -1972,10 +1998,20 @@ func draw_maze():
 
 			draw_rect(cell_rect, Color("#f5f7fa"))
 
-	# Draw thin connected wall lines.
+	# Draw walls only in the camera view.
 	for y in range(maze_rows):
 		for x in range(maze_cols):
 			var cell = Vector2i(x, y)
+
+			var cell_rect = Rect2(
+				maze_origin
+				+ Vector2(x * maze_cell_size, y * maze_cell_size)
+				+ maze_camera_offset,
+				Vector2(maze_cell_size, maze_cell_size)
+			)
+
+			if not cell_rect.intersects(viewport_rect):
+				continue
 
 			if not is_maze_cell_visible(cell):
 				continue
@@ -1983,37 +2019,50 @@ func draw_maze():
 			if maze_grid[y][x] == 1:
 				draw_maze_wall_cell(cell)
 
-	# Draw the fixed exit when discovered.
+	# Draw the exit only when discovered and inside the camera view.
 	if is_maze_cell_visible(maze_exit_cell):
-		var exit_position = maze_cell_center(maze_exit_cell)
-
-		draw_circle(
-			exit_position,
-			maze_cell_size * 0.38,
-			Color("#20bf6b")
+		var exit_position = maze_cell_center(maze_exit_cell) + maze_camera_offset
+		var exit_rect = Rect2(
+			exit_position - Vector2.ONE * maze_cell_size * 0.5,
+			Vector2.ONE * maze_cell_size
 		)
 
-		draw_circle(
-			exit_position,
-			maze_cell_size * 0.25,
-			Color("#aaffc3")
-		)
+		if exit_rect.intersects(viewport_rect):
+			draw_circle(
+				exit_position,
+				maze_cell_size * 0.38,
+				Color("#20bf6b")
+			)
 
-		draw_string(
-			ThemeDB.fallback_font,
-			exit_position + Vector2(-8, 7),
-			"E",
-			HORIZONTAL_ALIGNMENT_LEFT,
-			-1,
-			18,
-			Color("#14532d")
-		)
+			draw_circle(
+				exit_position,
+				maze_cell_size * 0.25,
+				Color("#aaffc3")
+			)
 
-	# Draw the player.
+			draw_string(
+				ThemeDB.fallback_font,
+				exit_position + Vector2(-8, 7),
+				"E",
+				HORIZONTAL_ALIGNMENT_LEFT,
+				-1,
+				18,
+				Color("#14532d")
+			)
+
+	# Draw the player centered in the camera.
 	draw_character(
-		maze_player_position,
+		maze_player_position + maze_camera_offset,
 		maze_is_moving,
 		maze_cell_size / 85.0
+	)
+
+	# Camera frame.
+	draw_rect(
+		viewport_rect,
+		Color("#607c98"),
+		false,
+		3.0
 	)
 
 
