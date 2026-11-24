@@ -102,8 +102,6 @@ func make_tone(duration: float, start_frequency: float, end_frequency: float, vo
 	return sound
 
 
-# PROCEDURAL BACKGROUND MUSIC
-
 func make_music() -> AudioStreamWAV:
 	var sample_rate = 22050
 	var note_duration = 0.32
@@ -147,7 +145,6 @@ func make_music() -> AudioStreamWAV:
 	music.mix_rate = sample_rate
 	music.stereo = false
 	music.data = audio_data
-
 	music.loop_mode = AudioStreamWAV.LOOP_FORWARD
 	music.loop_begin = 0
 	music.loop_end = total_samples
@@ -169,7 +166,8 @@ func toggle_music():
 	music_enabled = not music_enabled
 
 	if music_enabled:
-		music_player.play()
+		if not music_player.playing:
+			music_player.play()
 	else:
 		music_player.stop()
 
@@ -314,7 +312,7 @@ func _process(delta):
 	queue_redraw()
 
 
-# INPUT
+# INPUT - TOUCHSCREEN FIX
 
 func _input(event):
 	if event is InputEventScreenTouch:
@@ -328,6 +326,9 @@ func _input(event):
 			touch_target = event.position
 
 	elif event is InputEventMouseButton:
+		if DisplayServer.is_touchscreen_available():
+			return
+
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
 				handle_press(event.position)
@@ -335,6 +336,9 @@ func _input(event):
 				touch_target = null
 
 	elif event is InputEventMouseMotion:
+		if DisplayServer.is_touchscreen_available():
+			return
+
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 			if state == "playing":
 				touch_target = event.position
@@ -391,26 +395,21 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
 
 	draw_set_transform(pos, 0.0, Vector2.ONE * scale_factor)
 
-	# Legs
 	draw_line(Vector2(-8, 17), Vector2(-10 + swing, 34), Color("#202638"), 10)
 	draw_line(Vector2(8, 17), Vector2(10 - swing, 34), Color("#202638"), 10)
 
-	# Shoes
 	draw_line(Vector2(-10 + swing, 34), Vector2(-19 + swing, 39), Color("#e74c3c"), 12)
 	draw_line(Vector2(10 - swing, 34), Vector2(19 - swing, 39), Color("#e74c3c"), 12)
 
 	draw_line(Vector2(-20 + swing, 43), Vector2(-10 + swing, 43), Color.WHITE, 3)
 	draw_line(Vector2(10 - swing, 43), Vector2(20 - swing, 43), Color.WHITE, 3)
 
-	# Arms
 	draw_line(Vector2(-14, -7), Vector2(-24 - swing * 0.5, 7), Color("#b92e28"), 11)
 	draw_line(Vector2(14, -7), Vector2(24 + swing * 0.5, 7), Color("#b92e28"), 11)
 
-	# Hands
 	draw_circle(Vector2(-24 - swing * 0.5, 8), 6, Color("#ffd0aa"))
 	draw_circle(Vector2(24 + swing * 0.5, 8), 6, Color("#ffd0aa"))
 
-	# Hoodie
 	var body = PackedVector2Array([
 		Vector2(-17, -15),
 		Vector2(17, -15),
@@ -421,17 +420,12 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
 	draw_colored_polygon(body, Color("#e53935"))
 	draw_line(Vector2(0, -12), Vector2(0, 18), Color("#ff8a80"), 2)
 
-	# Hood
 	draw_arc(Vector2(0, -9), 18, PI, TAU, 32, Color("#a92725"), 5)
 
-	# Ears
 	draw_circle(Vector2(-18, -31), 6, Color("#ffd0aa"))
 	draw_circle(Vector2(18, -31), 6, Color("#ffd0aa"))
-
-	# Face
 	draw_circle(Vector2(0, -32), 19, Color("#ffd0aa"))
 
-	# Hair
 	var hair = PackedVector2Array([
 		Vector2(-19, -34),
 		Vector2(-23, -47),
@@ -448,20 +442,18 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
 
 	draw_colored_polygon(hair, Color("#39231d"))
 
-	# Eyes
 	draw_circle(Vector2(7, -32), 3.5, Color("#171717"))
 	draw_circle(Vector2(-6, -32), 3.5, Color("#171717"))
 
 	draw_circle(Vector2(8, -34), 1.2, Color.WHITE)
 	draw_circle(Vector2(-5, -34), 1.2, Color.WHITE)
 
-	# Smile
 	draw_arc(Vector2(2, -23), 5, 0.2, PI - 0.2, 12, Color("#9b5142"), 1.5)
 
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
-# EFFECT DRAWING
+# COLLECTION EFFECT DRAWING
 
 func draw_collection_effects():
 	for particle in particles:
@@ -531,13 +523,10 @@ func draw_music_button():
 # BACKGROUND
 
 func draw_background():
-	# Sky
 	draw_rect(Rect2(Vector2.ZERO, screen_size), Color("#78d7ff"))
 
-	# Sun
 	draw_circle(Vector2(screen_size.x - 85, 120), 55, Color("#ffe66d"))
 
-	# Clouds
 	for cloud_pos in [
 		Vector2(100, 150),
 		Vector2(350, 230),
@@ -547,7 +536,6 @@ func draw_background():
 		draw_circle(cloud_pos + Vector2(30, 5), 25, Color.WHITE)
 		draw_circle(cloud_pos + Vector2(-30, 8), 22, Color.WHITE)
 
-	# Hills
 	var hills = PackedVector2Array([
 		Vector2(0, 390),
 		Vector2(150, 270),
@@ -560,13 +548,11 @@ func draw_background():
 
 	draw_colored_polygon(hills, Color("#80c96b"))
 
-	# Grass
 	draw_rect(
 		Rect2(0, 400, screen_size.x, screen_size.y - 400),
 		Color("#65bd55")
 	)
 
-	# Grass details
 	for i in range(90):
 		var x = float((i * 83) % int(screen_size.x))
 		var y = float(420 + (i * 137) % int(screen_size.y - 450))
@@ -578,7 +564,6 @@ func draw_background():
 			3
 		)
 
-	# Trees
 	for tree_pos in [
 		Vector2(35, 350),
 		Vector2(675, 430),
@@ -693,5 +678,4 @@ func _draw():
 			draw_button(restart_button, "RESTART", Color("#2980b9"))
 			draw_button(home_button, "MAIN MENU", Color("#c0392b"))
 
-			# Keep music control visible above pause overlay
 			draw_music_button()
