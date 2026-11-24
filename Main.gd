@@ -1284,7 +1284,6 @@ func draw_shop_buy_button(rect: Rect2, price: int, can_afford: bool):
 
 
 func draw_shop():
-	# Shop title
 	draw_string(
 		ThemeDB.fallback_font,
 		Vector2(0, 92),
@@ -1305,7 +1304,6 @@ func draw_shop():
 		Color("#eaffff")
 	)
 
-	# Wallet display
 	var wallet_panel = Rect2(170, 145, 380, 58)
 
 	draw_shop_panel(
@@ -1335,7 +1333,6 @@ func draw_shop():
 		Color.WHITE
 	)
 
-	# Item cards
 	for i in range(item_order.size()):
 		var item = item_order[i]
 		var card_y = 220 + i * 205
@@ -1354,13 +1351,11 @@ func draw_shop():
 
 		draw_shop_panel(card, card_color)
 
-		# Item icon
 		draw_shop_icon(
 			item,
 			Vector2(82, card_y + 83)
 		)
 
-		# Item name
 		draw_string(
 			ThemeDB.fallback_font,
 			Vector2(140, card_y + 45),
@@ -1371,7 +1366,6 @@ func draw_shop():
 			Color("#ffe66d")
 		)
 
-		# Item description
 		draw_string(
 			ThemeDB.fallback_font,
 			Vector2(140, card_y + 78),
@@ -1382,7 +1376,6 @@ func draw_shop():
 			Color.WHITE
 		)
 
-		# Owned count
 		draw_string(
 			ThemeDB.fallback_font,
 			Vector2(140, card_y + 126),
@@ -1393,7 +1386,6 @@ func draw_shop():
 			Color("#aaffc3")
 		)
 
-		# Buy button
 		var price = item_prices[item]
 		var can_afford = wallet_coins >= price
 
@@ -1403,12 +1395,118 @@ func draw_shop():
 			can_afford
 		)
 
-	# Back button
 	draw_button(
 		shop_back_button,
 		"BACK",
 		Color("#c0392b")
 	)
+
+
+# GAMEPLAY ITEM ICONS
+
+func draw_gameplay_item_icon(item: String, center: Vector2):
+	if item == "magnet":
+		# Magnet body
+		draw_arc(
+			center + Vector2(0, -2),
+			17,
+			0,
+			PI,
+			32,
+			Color.WHITE,
+			7
+		)
+
+		draw_line(
+			center + Vector2(-17, -2),
+			center + Vector2(-17, 12),
+			Color.WHITE,
+			7
+		)
+
+		draw_line(
+			center + Vector2(17, -2),
+			center + Vector2(17, 12),
+			Color.WHITE,
+			7
+		)
+
+		draw_line(
+			center + Vector2(-22, 13),
+			center + Vector2(-11, 13),
+			Color("#ffe66d"),
+			5
+		)
+
+		draw_line(
+			center + Vector2(11, 13),
+			center + Vector2(22, 13),
+			Color("#ffe66d"),
+			5
+		)
+
+	elif item == "shield":
+		# Shield shape
+		var shield = PackedVector2Array([
+			center + Vector2(0, -22),
+			center + Vector2(19, -14),
+			center + Vector2(16, 9),
+			center + Vector2(0, 23),
+			center + Vector2(-16, 9),
+			center + Vector2(-19, -14)
+		])
+
+		draw_colored_polygon(shield, Color.WHITE)
+
+		# Checkmark
+		draw_line(
+			center + Vector2(-9, 0),
+			center + Vector2(-2, 8),
+			Color("#2980b9"),
+			4
+		)
+
+		draw_line(
+			center + Vector2(-2, 8),
+			center + Vector2(11, -8),
+			Color("#2980b9"),
+			4
+		)
+
+	elif item == "speed":
+		# Lightning bolt
+		var lightning = PackedVector2Array([
+			center + Vector2(4, -23),
+			center + Vector2(-15, 3),
+			center + Vector2(-2, 3),
+			center + Vector2(-7, 23),
+			center + Vector2(16, -5),
+			center + Vector2(3, -5)
+		])
+
+		draw_colored_polygon(lightning, Color.WHITE)
+
+	elif item == "life":
+		# Heart shape
+		draw_circle(
+			center + Vector2(-8, -5),
+			10,
+			Color.WHITE
+		)
+
+		draw_circle(
+			center + Vector2(8, -5),
+			10,
+			Color.WHITE
+		)
+
+		var heart_bottom = PackedVector2Array([
+			center + Vector2(-17, -2),
+			center + Vector2(17, -2),
+			center + Vector2(0, 22)
+		])
+
+		draw_colored_polygon(heart_bottom, Color.WHITE)
 
 
 func draw_item_buttons():
@@ -1425,47 +1523,62 @@ func draw_item_buttons():
 		elif item == "shield" and shield_active:
 			button_color = Color("#16a085")
 
-		draw_rect(rect, button_color)
-		draw_rect(rect, Color.WHITE, false, 2)
+		var style = StyleBoxFlat.new()
+		style.bg_color = button_color
+		style.corner_radius_top_left = 14
+		style.corner_radius_top_right = 14
+		style.corner_radius_bottom_left = 14
+		style.corner_radius_bottom_right = 14
+		style.border_width_left = 2
+		style.border_width_right = 2
+		style.border_width_top = 2
+		style.border_width_bottom = 2
+		style.border_color = Color(1, 1, 1, 0.75)
 
-		var label = item_names[item]
+		draw_style_box(style, rect)
 
-		if item == "magnet":
-			label = "MAGNET"
-			if magnet_timer > 0:
-				label = str(int(ceil(magnet_timer))) + "s"
-
-		elif item == "shield":
-			label = "SHIELD"
-			if shield_active:
-				label = "ACTIVE"
-
-		elif item == "speed":
-			label = "SPEED"
-			if speed_timer > 0:
-				label = str(int(ceil(speed_timer))) + "s"
-
-		elif item == "life":
-			label = "LIFE"
-
-		draw_string(
-			ThemeDB.fallback_font,
-			Vector2(rect.position.x, rect.position.y + 27),
-			label,
-			HORIZONTAL_ALIGNMENT_CENTER,
-			rect.size.x,
-			17,
-			Color.WHITE
+		# Draw the custom icon
+		var icon_center = Vector2(
+			rect.position.x + rect.size.x / 2,
+			rect.position.y + 23
 		)
 
+		draw_gameplay_item_icon(item, icon_center)
+
+		# Show active timer or item status
+		var status_text = ""
+
+		if item == "magnet":
+			status_text = str(int(ceil(magnet_timer))) + "s" if magnet_timer > 0 else "MAGNET"
+
+		elif item == "shield":
+			status_text = "ACTIVE" if shield_active else "SHIELD"
+
+		elif item == "speed":
+			status_text = str(int(ceil(speed_timer))) + "s" if speed_timer > 0 else "SPEED"
+
+		elif item == "life":
+			status_text = "EXTRA LIFE"
+
 		draw_string(
 			ThemeDB.fallback_font,
-			Vector2(rect.position.x, rect.position.y + 53),
-			"OWNED: " + str(count),
+			Vector2(rect.position.x, rect.position.y + 49),
+			status_text,
 			HORIZONTAL_ALIGNMENT_CENTER,
 			rect.size.x,
 			14,
 			Color.WHITE
+		)
+
+		# Owned item count
+		draw_string(
+			ThemeDB.fallback_font,
+			Vector2(rect.position.x, rect.position.y + 66),
+			"x" + str(count),
+			HORIZONTAL_ALIGNMENT_CENTER,
+			rect.size.x,
+			12,
+			Color("#fff3a3")
 		)
 
 
