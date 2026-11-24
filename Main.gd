@@ -115,7 +115,7 @@ var maze_player_position = Vector2.ZERO
 # Smooth movement
 var maze_move_target = Vector2.ZERO
 var maze_is_moving = false
-var maze_move_speed = 380.0
+var maze_move_speed = 400.0
 
 # Camera
 var maze_camera_offset = Vector2.ZERO
