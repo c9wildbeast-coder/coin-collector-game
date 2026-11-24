@@ -127,12 +127,12 @@ func update_buttons():
 			65
 		)
 
-		# Move item buttons above the joystick
+		# Compact item buttons on the right side
 		item_use_buttons[item] = Rect2(
-			15 + i * 173,
-			screen_size.y - 300,
-			165,
-			75
+			screen_size.x - 125,
+			230 + i * 88,
+			110,
+			70
 		)
 
 
@@ -567,7 +567,6 @@ func stop_joystick():
 func draw_joystick():
 	var knob_position = joystick_center + joystick_vector * 48.0
 
-	# Outer base
 	draw_circle(
 		joystick_center,
 		joystick_radius,
@@ -584,14 +583,12 @@ func draw_joystick():
 		5
 	)
 
-	# Inner base
 	draw_circle(
 		joystick_center,
 		55,
 		Color(1, 1, 1, 0.12)
 	)
 
-	# Moving knob
 	draw_circle(
 		knob_position,
 		32,
@@ -1017,16 +1014,27 @@ func draw_item_buttons():
 
 		var label = item_names[item]
 
-		if item == "magnet" and magnet_timer > 0:
-			label = "MAGNET " + str(int(ceil(magnet_timer))) + "s"
-		elif item == "speed" and speed_timer > 0:
-			label = "SPEED " + str(int(ceil(speed_timer))) + "s"
-		elif item == "shield" and shield_active:
-			label = "SHIELD ON"
+		if item == "magnet":
+			label = "MAGNET"
+			if magnet_timer > 0:
+				label = str(int(ceil(magnet_timer))) + "s"
+
+		elif item == "shield":
+			label = "SHIELD"
+			if shield_active:
+				label = "ACTIVE"
+
+		elif item == "speed":
+			label = "SPEED"
+			if speed_timer > 0:
+				label = str(int(ceil(speed_timer))) + "s"
+
+		elif item == "life":
+			label = "LIFE"
 
 		draw_string(
 			ThemeDB.fallback_font,
-			Vector2(rect.position.x, rect.position.y + 30),
+			Vector2(rect.position.x, rect.position.y + 27),
 			label,
 			HORIZONTAL_ALIGNMENT_CENTER,
 			rect.size.x,
@@ -1036,11 +1044,11 @@ func draw_item_buttons():
 
 		draw_string(
 			ThemeDB.fallback_font,
-			Vector2(rect.position.x, rect.position.y + 57),
+			Vector2(rect.position.x, rect.position.y + 53),
 			"OWNED: " + str(count),
 			HORIZONTAL_ALIGNMENT_CENTER,
 			rect.size.x,
-			17,
+			14,
 			Color.WHITE
 		)
 
