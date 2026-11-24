@@ -23,10 +23,13 @@ var pause_button = Rect2()
 var resume_button = Rect2()
 var restart_button = Rect2()
 var home_button = Rect2()
+var music_button = Rect2()
 
-# Sound players
+# Audio
 var coin_sound_player: AudioStreamPlayer
 var button_sound_player: AudioStreamPlayer
+var music_player: AudioStreamPlayer
+var music_enabled = true
 
 
 func _ready():
@@ -38,17 +41,35 @@ func _ready():
 	queue_redraw()
 
 
+func update_buttons():
+	var center = screen_size.x / 2
+
+	play_button = Rect2(center - 140, screen_size.y * 0.53, 280, 85)
+	pause_button = Rect2(screen_size.x - 105, 25, 80, 65)
+	music_button = Rect2(screen_size.x - 205, 25, 90, 65)
+
+	resume_button = Rect2(center - 140, screen_size.y * 0.43, 280, 75)
+	restart_button = Rect2(center - 140, screen_size.y * 0.54, 280, 75)
+	home_button = Rect2(center - 140, screen_size.y * 0.65, 280, 75)
+
+
 # AUDIO SYSTEM
 
 func setup_audio():
 	coin_sound_player = AudioStreamPlayer.new()
 	button_sound_player = AudioStreamPlayer.new()
+	music_player = AudioStreamPlayer.new()
 
 	add_child(coin_sound_player)
 	add_child(button_sound_player)
+	add_child(music_player)
 
 	coin_sound_player.stream = make_tone(0.20, 850.0, 1450.0, 0.35)
 	button_sound_player.stream = make_tone(0.09, 520.0, 330.0, 0.25)
+
+	music_player.stream = make_music()
+	music_player.volume_db = -15.0
+	music_player.play()
 
 
 func make_tone(duration: float, start_frequency: float, end_frequency: float, volume: float) -> AudioStreamWAV:
@@ -70,9 +91,7 @@ func make_tone(duration: float, start_frequency: float, end_frequency: float, vo
 		envelope *= minf(progress * 15.0, 1.0)
 
 		var sample = sin(phase) * volume * envelope
-		var value = int(sample * 32767.0)
-
-		audio_data.encode_s16(i * 2, value)
+		audio_data.encode_s16(i * 2, int(sample * 32767.0))
 
 	var sound = AudioStreamWAV.new()
 	sound.format = AudioStreamWAV.FORMAT_16_BITS
@@ -81,6 +100,59 @@ func make_tone(duration: float, start_frequency: float, end_frequency: float, vo
 	sound.data = audio_data
 
 	return sound
+
+
+# PROCEDURAL BACKGROUND MUSIC
+
+func make_music() -> AudioStreamWAV:
+	var sample_rate = 22050
+	var note_duration = 0.32
+
+	var notes = [
+		523.25, 659.25, 783.99, 659.25,
+		587.33, 698.46, 880.00, 698.46,
+		523.25, 659.25, 783.99, 1046.50,
+		880.00, 783.99, 659.25, 523.25
+	]
+
+	var samples_per_note = int(note_duration * sample_rate)
+	var total_samples = samples_per_note * notes.size()
+
+	var audio_data = PackedByteArray()
+	audio_data.resize(total_samples * 2)
+
+	var phase = 0.0
+
+	for i in range(total_samples):
+		var note_index = int(i / samples_per_note)
+		var local_sample = i % samples_per_note
+
+		var frequency = notes[note_index]
+		phase += TAU * frequency / sample_rate
+
+		var progress = float(local_sample) / samples_per_note
+
+		var envelope = minf(progress * 15.0, 1.0)
+		envelope *= minf((1.0 - progress) * 8.0, 1.0)
+
+		var main_tone = sin(phase)
+		var soft_harmony = sin(phase * 2.0) * 0.20
+
+		var sample = (main_tone + soft_harmony) * 0.12 * envelope
+
+		audio_data.encode_s16(i * 2, int(sample * 32767.0))
+
+	var music = AudioStreamWAV.new()
+	music.format = AudioStreamWAV.FORMAT_16_BITS
+	music.mix_rate = sample_rate
+	music.stereo = false
+	music.data = audio_data
+
+	music.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	music.loop_begin = 0
+	music.loop_end = total_samples
+
+	return music
 
 
 func play_coin_sound():
@@ -93,16 +165,16 @@ func play_button_sound():
 		button_sound_player.play()
 
 
-# BUTTONS
+func toggle_music():
+	music_enabled = not music_enabled
 
-func update_buttons():
-	var center = screen_size.x / 2
-	play_button = Rect2(center - 140, screen_size.y * 0.53, 280, 85)
-	pause_button = Rect2(screen_size.x - 105, 25, 80, 65)
-	resume_button = Rect2(center - 140, screen_size.y * 0.43, 280, 75)
-	restart_button = Rect2(center - 140, screen_size.y * 0.54, 280, 75)
-	home_button = Rect2(center - 140, screen_size.y * 0.65, 280, 75)
+	if music_enabled:
+		music_player.play()
+	else:
+		music_player.stop()
 
+
+# GAME SETUP
 
 func start_game():
 	score = 0
@@ -135,10 +207,12 @@ func load_best_score():
 
 func spawn_coin():
 	var margin = 60.0
+
 	var coin = Vector2(
 		randf_range(margin, screen_size.x - margin),
 		randf_range(150, screen_size.y - margin)
 	)
+
 	coins.append(coin)
 
 
@@ -149,10 +223,7 @@ func create_collection_effect(pos: Vector2):
 		var angle = randf_range(0.0, TAU)
 		var speed = randf_range(80.0, 230.0)
 
-		var velocity = Vector2(
-			cos(angle),
-			sin(angle)
-		) * speed
+		var velocity = Vector2(cos(angle), sin(angle)) * speed
 
 		var colors = [
 			Color("#ffe66d"),
@@ -229,10 +300,7 @@ func _process(delta):
 			var collected_position = coins[i]
 
 			coins.remove_at(i)
-
 			create_collection_effect(collected_position)
-
-			# Play coin sound
 			play_coin_sound()
 
 			score += 1
@@ -274,20 +342,33 @@ func _input(event):
 
 func handle_press(pos):
 	if state == "menu":
-		if play_button.has_point(pos):
+		if music_button.has_point(pos):
+			play_button_sound()
+			toggle_music()
+
+		elif play_button.has_point(pos):
 			play_button_sound()
 			start_game()
 
 	elif state == "playing":
-		if pause_button.has_point(pos):
+		if music_button.has_point(pos):
+			play_button_sound()
+			toggle_music()
+
+		elif pause_button.has_point(pos):
 			play_button_sound()
 			state = "paused"
 			touch_target = null
+
 		else:
 			touch_target = pos
 
 	elif state == "paused":
-		if resume_button.has_point(pos):
+		if music_button.has_point(pos):
+			play_button_sound()
+			toggle_music()
+
+		elif resume_button.has_point(pos):
 			play_button_sound()
 			state = "playing"
 
@@ -336,8 +417,8 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
 		Vector2(15, 20),
 		Vector2(-15, 20)
 	])
-	draw_colored_polygon(body, Color("#e53935"))
 
+	draw_colored_polygon(body, Color("#e53935"))
 	draw_line(Vector2(0, -12), Vector2(0, 18), Color("#ff8a80"), 2)
 
 	# Hood
@@ -364,6 +445,7 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
 		Vector2(14, -28),
 		Vector2(-15, -28)
 	])
+
 	draw_colored_polygon(hair, Color("#39231d"))
 
 	# Eyes
@@ -379,7 +461,7 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
-# COLLECTION EFFECT DRAWING
+# EFFECT DRAWING
 
 func draw_collection_effects():
 	for particle in particles:
@@ -424,6 +506,24 @@ func draw_button(rect, label, color):
 		HORIZONTAL_ALIGNMENT_CENTER,
 		rect.size.x,
 		32,
+		Color.WHITE
+	)
+
+
+func draw_music_button():
+	var button_color = Color("#27ae60") if music_enabled else Color("#7f8c8d")
+	var label = "MUSIC ON" if music_enabled else "MUSIC OFF"
+
+	draw_rect(music_button, button_color)
+	draw_rect(music_button, Color.WHITE, false, 3)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(music_button.position.x, music_button.position.y + 40),
+		label,
+		HORIZONTAL_ALIGNMENT_CENTER,
+		music_button.size.x,
+		18,
 		Color.WHITE
 	)
 
@@ -503,6 +603,8 @@ func _draw():
 	var center = screen_size.x / 2
 
 	if state == "menu":
+		draw_music_button()
+
 		draw_string(
 			ThemeDB.fallback_font,
 			Vector2(0, screen_size.y * 0.29),
@@ -546,7 +648,6 @@ func _draw():
 			draw_circle(coin, 12, Color("#ffe680"))
 
 		draw_character(player_position, is_moving, 1.0)
-
 		draw_collection_effects()
 
 		draw_string(
@@ -569,6 +670,7 @@ func _draw():
 			Color("#f1c40f")
 		)
 
+		draw_music_button()
 		draw_button(pause_button, "II", Color("#2980b9"))
 
 		if state == "paused":
@@ -590,3 +692,6 @@ func _draw():
 			draw_button(resume_button, "RESUME", Color("#27ae60"))
 			draw_button(restart_button, "RESTART", Color("#2980b9"))
 			draw_button(home_button, "MAIN MENU", Color("#c0392b"))
+
+			# Keep music control visible above pause overlay
+			draw_music_button()
