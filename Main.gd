@@ -17,6 +17,14 @@ var touch_target: Variant = null
 var animation_time = 0.0
 var is_moving = false
 
+# Virtual joystick
+var joystick_center = Vector2.ZERO
+var joystick_vector = Vector2.ZERO
+var joystick_radius = 82.0
+var joystick_active = false
+var joystick_touch_index = -1
+var joystick_mouse_active = false
+
 var particles: Array[Dictionary] = []
 var floating_texts: Array[Dictionary] = []
 
@@ -92,6 +100,8 @@ func _ready():
 func update_buttons():
 	var center = screen_size.x / 2
 
+	joystick_center = Vector2(center, screen_size.y - 140)
+
 	play_button = Rect2(center - 140, screen_size.y * 0.51, 280, 80)
 	shop_button = Rect2(center - 140, screen_size.y * 0.62, 280, 80)
 	shop_back_button = Rect2(center - 140, screen_size.y - 145, 280, 75)
@@ -117,9 +127,10 @@ func update_buttons():
 			65
 		)
 
+		# Move item buttons above the joystick
 		item_use_buttons[item] = Rect2(
 			15 + i * 173,
-			screen_size.y - 115,
+			screen_size.y - 300,
 			165,
 			75
 		)
@@ -329,6 +340,11 @@ func start_game():
 	touch_target = null
 	is_moving = false
 
+	joystick_active = false
+	joystick_vector = Vector2.ZERO
+	joystick_touch_index = -1
+	joystick_mouse_active = false
+
 	rock_spawn_timer = 1.5
 	rock_spawn_interval = 4.0
 	invulnerability_timer = 0.0
@@ -418,6 +434,8 @@ func damage_player():
 	lives -= 1
 	invulnerability_timer = 1.5
 	touch_target = null
+	joystick_active = false
+	joystick_vector = Vector2.ZERO
 
 	if lives <= 0:
 		state = "game_over"
@@ -524,6 +542,73 @@ func update_coins(delta):
 			collect_coin(i)
 
 
+# JOYSTICK SYSTEM
+
+func is_joystick_area(pos: Vector2) -> bool:
+	return pos.distance_to(joystick_center) <= joystick_radius + 35
+
+
+func update_joystick(pos: Vector2):
+	var offset = pos - joystick_center
+
+	if offset.length() > joystick_radius:
+		offset = offset.normalized() * joystick_radius
+
+	joystick_vector = offset / joystick_radius
+
+
+func stop_joystick():
+	joystick_active = false
+	joystick_mouse_active = false
+	joystick_touch_index = -1
+	joystick_vector = Vector2.ZERO
+
+
+func draw_joystick():
+	var knob_position = joystick_center + joystick_vector * 48.0
+
+	# Outer base
+	draw_circle(
+		joystick_center,
+		joystick_radius,
+		Color(0.05, 0.12, 0.16, 0.35)
+	)
+
+	draw_arc(
+		joystick_center,
+		joystick_radius,
+		0,
+		TAU,
+		64,
+		Color(1, 1, 1, 0.65),
+		5
+	)
+
+	# Inner base
+	draw_circle(
+		joystick_center,
+		55,
+		Color(1, 1, 1, 0.12)
+	)
+
+	# Moving knob
+	draw_circle(
+		knob_position,
+		32,
+		Color("#3498db")
+	)
+
+	draw_arc(
+		knob_position,
+		32,
+		0,
+		TAU,
+		48,
+		Color.WHITE,
+		4
+	)
+
+
 # GAME LOOP
 
 func _process(delta):
@@ -552,9 +637,8 @@ func _process(delta):
 		"ui_up", "ui_down"
 	)
 
-	if touch_target != null:
-		if player_position.distance_to(touch_target) > 10:
-			direction = player_position.direction_to(touch_target)
+	if joystick_active:
+		direction = joystick_vector
 
 	is_moving = direction.length() > 0.05
 
@@ -583,13 +667,19 @@ func _process(delta):
 func _input(event):
 	if event is InputEventScreenTouch:
 		if event.pressed:
-			handle_press(event.position)
+			if state == "playing" and is_joystick_area(event.position):
+				joystick_active = true
+				joystick_touch_index = event.index
+				update_joystick(event.position)
+			else:
+				handle_press(event.position)
 		else:
-			touch_target = null
+			if joystick_active and event.index == joystick_touch_index:
+				stop_joystick()
 
 	elif event is InputEventScreenDrag:
-		if state == "playing":
-			touch_target = event.position
+		if joystick_active and event.index == joystick_touch_index:
+			update_joystick(event.position)
 
 	elif event is InputEventMouseButton:
 		if DisplayServer.is_touchscreen_available():
@@ -597,17 +687,22 @@ func _input(event):
 
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
-				handle_press(event.position)
+				if state == "playing" and is_joystick_area(event.position):
+					joystick_active = true
+					joystick_mouse_active = true
+					update_joystick(event.position)
+				else:
+					handle_press(event.position)
 			else:
-				touch_target = null
+				if joystick_mouse_active:
+					stop_joystick()
 
 	elif event is InputEventMouseMotion:
 		if DisplayServer.is_touchscreen_available():
 			return
 
-		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-			if state == "playing":
-				touch_target = event.position
+		if joystick_mouse_active and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			update_joystick(event.position)
 
 
 func handle_press(pos):
@@ -643,15 +738,13 @@ func handle_press(pos):
 		elif pause_button.has_point(pos):
 			play_button_sound()
 			state = "paused"
-			touch_target = null
+			stop_joystick()
 
 		else:
 			for item in item_order:
 				if item_use_buttons[item].has_point(pos):
 					activate_item(item)
 					return
-
-			touch_target = pos
 
 	elif state == "paused":
 		if music_button.has_point(pos):
@@ -1107,6 +1200,7 @@ func _draw():
 		draw_music_button()
 		draw_button(pause_button, "II", Color("#2980b9"))
 		draw_item_buttons()
+		draw_joystick()
 
 		if state == "paused":
 			draw_rect(
