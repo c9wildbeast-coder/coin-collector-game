@@ -1,4 +1,3 @@
-
 extends Node2D
 
 # =====================================================
@@ -110,6 +109,11 @@ var maze_origin = Vector2.ZERO
 var maze_player_cell = Vector2i(1, 1)
 var maze_exit_cell = Vector2i.ZERO
 var maze_player_position = Vector2.ZERO
+
+# Smooth movement
+var maze_move_target = Vector2.ZERO
+var maze_is_moving = false
+var maze_move_speed = 260.0
 
 # Remember the previous exit so the next maze can use
 # a different exit location.
@@ -743,6 +747,8 @@ func start_maze():
 
 	maze_player_cell = Vector2i(1, 1)
 	maze_player_position = maze_cell_center(maze_player_cell)
+	maze_move_target = maze_player_position
+	maze_is_moving = false
 
 	maze_move_cooldown = 0.0
 	maze_reward = 10 + maze_level * 2
@@ -840,7 +846,6 @@ func generate_maze():
 			stack.append(next)
 
 	# Collect all carved maze cells that can be used as exits.
-	# Every odd/odd cell is part of the DFS-carved maze.
 	var exit_candidates: Array[Vector2i] = []
 
 	for y in range(1, maze_rows - 1, 2):
@@ -848,22 +853,18 @@ func generate_maze():
 			if maze_grid[y][x] == 0:
 				var candidate = Vector2i(x, y)
 
-				# Never place the exit on the starting cell.
 				if candidate != start:
 					exit_candidates.append(candidate)
 
 	# Avoid reusing the previous exit location.
-	# If there are other candidates, remove the previous one.
 	if exit_candidates.size() > 1:
 		exit_candidates.erase(maze_previous_exit_cell)
 
-	# Select a random valid exit.
 	if not exit_candidates.is_empty():
 		maze_exit_cell = exit_candidates[
 			randi() % exit_candidates.size()
 		]
 	else:
-		# Safe fallback in case no candidates are available.
 		maze_exit_cell = Vector2i(maze_cols - 2, maze_rows - 2)
 
 		if maze_exit_cell.x % 2 == 0:
@@ -891,7 +892,6 @@ func generate_maze():
 	for i in range(extra_openings):
 		open_random_maze_wall()
 
-	# Keep the exit and starting area clear.
 	maze_grid[1][1] = 0
 	maze_grid[maze_exit_cell.y][maze_exit_cell.x] = 0
 
@@ -974,10 +974,14 @@ func is_maze_cell_visible(cell: Vector2i) -> bool:
 
 
 # =====================================================
-# MAZE MOVEMENT
+# MAZE MOVEMENT - SMOOTH
 # =====================================================
 
 func move_maze_player(direction: Vector2i):
+	# Do not start another movement while the player is moving.
+	if maze_is_moving:
+		return
+
 	var next_cell = maze_player_cell + direction
 
 	if next_cell.x < 0 or next_cell.x >= maze_cols:
@@ -986,24 +990,37 @@ func move_maze_player(direction: Vector2i):
 	if next_cell.y < 0 or next_cell.y >= maze_rows:
 		return
 
+	# Stop movement if the next tile is a wall.
 	if maze_grid[next_cell.y][next_cell.x] == 1:
 		return
 
+	# Update the logical cell and set the visual destination.
 	maze_player_cell = next_cell
-	maze_player_position = maze_cell_center(maze_player_cell)
+	maze_move_target = maze_cell_center(next_cell)
+	maze_is_moving = true
 
 	reveal_maze_area(maze_player_cell)
 
 	play_button_sound()
 
-	if maze_player_cell == maze_exit_cell:
-		complete_maze_level()
-
 
 func update_maze(delta):
-	maze_move_cooldown -= delta
+	# Smoothly move the character toward the next tile.
+	if maze_is_moving:
+		maze_player_position = maze_player_position.move_toward(
+			maze_move_target,
+			maze_move_speed * delta
+		)
 
-	if maze_move_cooldown > 0:
+		# Finish the movement once the target is reached.
+		if maze_player_position.distance_to(maze_move_target) < 0.5:
+			maze_player_position = maze_move_target
+			maze_is_moving = false
+
+			# Check the exit after the character reaches the tile.
+			if maze_player_cell == maze_exit_cell:
+				complete_maze_level()
+
 		return
 
 	var direction = Vector2.ZERO
@@ -1028,8 +1045,6 @@ func update_maze(delta):
 			Vector2i(0, 1 if direction.y > 0 else -1)
 		)
 
-	maze_move_cooldown = 0.14
-
 
 # =====================================================
 # MAZE LEVEL COMPLETION
@@ -1048,6 +1063,7 @@ func complete_maze_level():
 
 	save_maze_data()
 
+	maze_is_moving = false
 	stop_joystick()
 
 	change_state("maze_complete")
@@ -2078,7 +2094,7 @@ func draw_maze():
 
 	draw_character(
 		maze_player_position,
-		false,
+		maze_is_moving,
 		maze_cell_size / 85.0
 	)
 
