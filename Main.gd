@@ -1,8 +1,6 @@
 
 extends Node2D
 
-const AudioManagerScript = preload("res://scripts/audio_manager.gd")
-
 # =====================================================
 # COIN COLLECTOR
 # CLASSIC MODE + MAZE MODE (99 LEVELS)
@@ -107,6 +105,7 @@ var maze_cell_size = 40.0
 
 var maze_grid: Array = []
 var maze_seen: Array = []
+var maze_fog_alpha: Array = []
 var maze_origin = Vector2.ZERO
 
 var maze_player_cell = Vector2i(1, 1)
@@ -116,13 +115,16 @@ var maze_player_position = Vector2.ZERO
 # Smooth movement
 var maze_move_target = Vector2.ZERO
 var maze_is_moving = false
-var maze_move_speed = 260.0
+var maze_move_speed = 480.0
 
 # Camera
 var maze_camera_offset = Vector2.ZERO
 
 var maze_reward = 0
 var maze_vision_radius = 99
+
+# Fog animation speed
+var maze_fog_speed = 3.5
 
 # =====================================================
 # BUTTONS
@@ -151,7 +153,9 @@ var maze_select_button = Rect2()
 # AUDIO
 # =====================================================
 
-var audio_manager: Node
+var coin_sound_player: AudioStreamPlayer
+var button_sound_player: AudioStreamPlayer
+var music_player: AudioStreamPlayer
 var music_enabled = true
 
 
@@ -243,28 +247,117 @@ func update_buttons():
 
 
 # =====================================================
-# AUDIO MANAGER CONNECTION
+# AUDIO SYSTEM
 # =====================================================
 
 func setup_audio():
-	audio_manager = AudioManagerScript.new()
-	add_child(audio_manager)
+	coin_sound_player = AudioStreamPlayer.new()
+	button_sound_player = AudioStreamPlayer.new()
+	music_player = AudioStreamPlayer.new()
+
+	add_child(coin_sound_player)
+	add_child(button_sound_player)
+	add_child(music_player)
+
+	coin_sound_player.stream = make_tone(0.20, 850.0, 1450.0, 0.35)
+	button_sound_player.stream = make_tone(0.09, 520.0, 330.0, 0.25)
+
+	music_player.stream = make_music()
+	music_player.volume_db = -15.0
+
+	if music_enabled:
+		music_player.play()
+
+
+func make_tone(duration: float, start_frequency: float, end_frequency: float, volume: float) -> AudioStreamWAV:
+	var sample_rate = 22050
+	var sample_count = int(duration * sample_rate)
+	var audio_data = PackedByteArray()
+	audio_data.resize(sample_count * 2)
+	var phase = 0.0
+
+	for i in range(sample_count):
+		var progress = float(i) / sample_count
+		var frequency = lerpf(start_frequency, end_frequency, progress)
+		phase += TAU * frequency / sample_rate
+
+		var envelope = 1.0 - progress
+		envelope *= minf(progress * 15.0, 1.0)
+
+		var sample = sin(phase) * volume * envelope
+		audio_data.encode_s16(i * 2, int(sample * 32767.0))
+
+	var sound = AudioStreamWAV.new()
+	sound.format = AudioStreamWAV.FORMAT_16_BITS
+	sound.mix_rate = sample_rate
+	sound.stereo = false
+	sound.data = audio_data
+	return sound
+
+
+func make_music() -> AudioStreamWAV:
+	var sample_rate = 22050
+	var note_duration = 0.32
+
+	var notes = [
+		523.25, 659.25, 783.99, 659.25,
+		587.33, 698.46, 880.00, 698.46,
+		523.25, 659.25, 783.99, 1046.50,
+		880.00, 783.99, 659.25, 523.25
+	]
+
+	var samples_per_note = int(note_duration * sample_rate)
+	var total_samples = samples_per_note * notes.size()
+	var audio_data = PackedByteArray()
+	audio_data.resize(total_samples * 2)
+	var phase = 0.0
+
+	for i in range(total_samples):
+		var note_index = int(i / samples_per_note)
+		var local_sample = i % samples_per_note
+		var frequency = notes[note_index]
+
+		phase += TAU * frequency / sample_rate
+
+		var progress = float(local_sample) / samples_per_note
+		var envelope = minf(progress * 15.0, 1.0)
+		envelope *= minf((1.0 - progress) * 8.0, 1.0)
+
+		var main_tone = sin(phase)
+		var soft_harmony = sin(phase * 2.0) * 0.20
+		var sample = (main_tone + soft_harmony) * 0.12 * envelope
+
+		audio_data.encode_s16(i * 2, int(sample * 32767.0))
+
+	var music = AudioStreamWAV.new()
+	music.format = AudioStreamWAV.FORMAT_16_BITS
+	music.mix_rate = sample_rate
+	music.stereo = false
+	music.data = audio_data
+	music.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	music.loop_begin = 0
+	music.loop_end = total_samples
+	return music
 
 
 func play_coin_sound():
-	if audio_manager:
-		audio_manager.play_coin_sound()
+	if coin_sound_player:
+		coin_sound_player.play()
 
 
 func play_button_sound():
-	if audio_manager:
-		audio_manager.play_button_sound()
+	if button_sound_player:
+		button_sound_player.play()
 
 
 func toggle_music():
-	if audio_manager:
-		audio_manager.toggle_music()
-		music_enabled = audio_manager.music_enabled
+	music_enabled = not music_enabled
+
+	if music_enabled:
+		if not music_player.playing:
+			music_player.play()
+	else:
+		music_player.stop()
 
 
 # =====================================================
@@ -625,6 +718,7 @@ func start_maze():
 
 	stop_joystick()
 	reveal_maze_area(maze_player_cell)
+	initialize_maze_fog()
 
 	update_maze_camera()
 	change_state("maze_playing")
@@ -653,19 +747,23 @@ func generate_maze():
 
 	maze_grid.clear()
 	maze_seen.clear()
+	maze_fog_alpha.clear()
 
 	maze_vision_radius = get_maze_vision_radius()
 
 	for y in range(maze_rows):
 		var row: Array = []
 		var seen_row: Array = []
+		var fog_row: Array = []
 
 		for x in range(maze_cols):
 			row.append(1)
 			seen_row.append(false)
+			fog_row.append(1.0)
 
 		maze_grid.append(row)
 		maze_seen.append(seen_row)
+		maze_fog_alpha.append(fog_row)
 
 	var start = Vector2i(1, 1)
 	maze_grid[start.y][start.x] = 0
@@ -727,7 +825,7 @@ func generate_maze():
 	maze_grid[1][1] = 0
 	maze_grid[maze_exit_cell.y][maze_exit_cell.x] = 0
 
-	# Increased cell size for a closer, more zoomed-in maze.
+	# Keep the existing zoom level unchanged.
 	maze_cell_size = clampf(
 		screen_size.x * 0.15,
 		90.0,
@@ -807,6 +905,64 @@ func reveal_maze_area(center: Vector2i):
 				maze_seen[y][x] = true
 
 
+func initialize_maze_fog():
+	for y in range(maze_rows):
+		for x in range(maze_cols):
+			if is_maze_cell_visible(Vector2i(x, y)):
+				maze_fog_alpha[y][x] = 0.0
+			else:
+				maze_fog_alpha[y][x] = 1.0
+
+
+func update_maze_fog(delta):
+	if maze_fog_alpha.is_empty():
+		return
+
+	for y in range(maze_rows):
+		for x in range(maze_cols):
+			var cell = Vector2i(x, y)
+			var target_alpha = 1.0
+
+			if maze_vision_radius >= 99:
+				target_alpha = 0.0
+			else:
+				var distance = Vector2(
+					float(cell.x - maze_player_cell.x),
+					float(cell.y - maze_player_cell.y)
+				).length()
+
+				# Smoothly fade the fog around the vision boundary.
+				var fade_start = maxf(0.0, maze_vision_radius - 0.5)
+				var fade_end = maze_vision_radius + 0.8
+
+				var visibility = 1.0 - clampf(
+					(distance - fade_start) / (fade_end - fade_start),
+					0.0,
+					1.0
+				)
+
+				target_alpha = 1.0 - visibility
+
+			maze_fog_alpha[y][x] = move_toward(
+				maze_fog_alpha[y][x],
+				target_alpha,
+				maze_fog_speed * delta
+			)
+
+
+func get_maze_fog_alpha(cell: Vector2i) -> float:
+	if cell.x < 0 or cell.x >= maze_cols:
+		return 1.0
+
+	if cell.y < 0 or cell.y >= maze_rows:
+		return 1.0
+
+	if maze_fog_alpha.is_empty():
+		return 1.0
+
+	return maze_fog_alpha[cell.y][cell.x]
+
+
 func is_maze_cell_visible(cell: Vector2i) -> bool:
 	if cell.x < 0 or cell.x >= maze_cols:
 		return false
@@ -817,13 +973,11 @@ func is_maze_cell_visible(cell: Vector2i) -> bool:
 	if maze_vision_radius >= 99:
 		return true
 
-	# Only reveal the area immediately surrounding the player.
-	# Previously explored areas become hidden again.
 	return cell.distance_to(maze_player_cell) <= maze_vision_radius
 
 
 # =====================================================
-# MAZE MOVEMENT - SMOOTH
+# MAZE MOVEMENT - SMOOTH AND FASTER
 # =====================================================
 
 func move_maze_player(direction: Vector2i):
@@ -1098,6 +1252,7 @@ func _process(delta):
 
 	if state == "maze_playing":
 		update_maze(delta)
+		update_maze_fog(delta)
 		update_maze_camera()
 		queue_redraw()
 		return
@@ -1812,7 +1967,7 @@ func draw_item_buttons():
 
 
 # =====================================================
-# MAZE DRAWING - CAMERA VIEW
+# MAZE DRAWING - CAMERA VIEW + SMOOTH FOG
 # =====================================================
 
 func draw_maze_wall_cell(cell: Vector2i):
@@ -1891,7 +2046,7 @@ func draw_maze():
 		Color("#dce5ed")
 	)
 
-	# Draw only cells inside the camera view.
+	# Draw all floor cells first.
 	for y in range(maze_rows):
 		for x in range(maze_cols):
 			var cell = Vector2i(x, y)
@@ -1906,13 +2061,12 @@ func draw_maze():
 			if not cell_rect.intersects(viewport_rect):
 				continue
 
-			if not is_maze_cell_visible(cell):
-				draw_rect(cell_rect, Color("#182536"))
-				continue
+			if maze_grid[y][x] == 1:
+				draw_rect(cell_rect, Color("#344d68"))
+			else:
+				draw_rect(cell_rect, Color("#f5f7fa"))
 
-			draw_rect(cell_rect, Color("#f5f7fa"))
-
-	# Draw walls only in the camera view.
+	# Draw walls.
 	for y in range(maze_rows):
 		for x in range(maze_cols):
 			var cell = Vector2i(x, y)
@@ -1925,35 +2079,40 @@ func draw_maze():
 			)
 
 			if not cell_rect.intersects(viewport_rect):
-				continue
-
-			if not is_maze_cell_visible(cell):
 				continue
 
 			if maze_grid[y][x] == 1:
 				draw_maze_wall_cell(cell)
 
-	# Draw the exit only when discovered and inside the camera view.
-	if is_maze_cell_visible(maze_exit_cell):
-		var exit_position = maze_cell_center(maze_exit_cell) + maze_camera_offset
-		var exit_rect = Rect2(
-			exit_position - Vector2.ONE * maze_cell_size * 0.5,
-			Vector2.ONE * maze_cell_size
-		)
+	# Draw the exit.
+	var exit_position = maze_cell_center(maze_exit_cell) + maze_camera_offset
+	var exit_rect = Rect2(
+		exit_position - Vector2.ONE * maze_cell_size * 0.5,
+		Vector2.ONE * maze_cell_size
+	)
 
-		if exit_rect.intersects(viewport_rect):
+	if exit_rect.intersects(viewport_rect):
+		var exit_alpha = 1.0 - get_maze_fog_alpha(maze_exit_cell)
+
+		if exit_alpha > 0.01:
+			var exit_color = Color("#20bf6b")
+			exit_color.a = exit_alpha
 			draw_circle(
 				exit_position,
 				maze_cell_size * 0.38,
-				Color("#20bf6b")
+				exit_color
 			)
 
+			var inner_exit_color = Color("#aaffc3")
+			inner_exit_color.a = exit_alpha
 			draw_circle(
 				exit_position,
 				maze_cell_size * 0.25,
-				Color("#aaffc3")
+				inner_exit_color
 			)
 
+			var exit_text_color = Color("#14532d")
+			exit_text_color.a = exit_alpha
 			draw_string(
 				ThemeDB.fallback_font,
 				exit_position + Vector2(-8, 7),
@@ -1961,7 +2120,7 @@ func draw_maze():
 				HORIZONTAL_ALIGNMENT_LEFT,
 				-1,
 				18,
-				Color("#14532d")
+				exit_text_color
 			)
 
 	# Draw the player centered in the camera.
@@ -1970,6 +2129,29 @@ func draw_maze():
 		maze_is_moving,
 		maze_cell_size / 85.0
 	)
+
+	# Apply the animated fog overlay after drawing the maze.
+	for y in range(maze_rows):
+		for x in range(maze_cols):
+			var cell = Vector2i(x, y)
+
+			var cell_rect = Rect2(
+				maze_origin
+				+ Vector2(x * maze_cell_size, y * maze_cell_size)
+				+ maze_camera_offset,
+				Vector2(maze_cell_size, maze_cell_size)
+			)
+
+			if not cell_rect.intersects(viewport_rect):
+				continue
+
+			var fog_alpha = get_maze_fog_alpha(cell)
+
+			if fog_alpha > 0.01:
+				draw_rect(
+					cell_rect,
+					Color(0.055, 0.09, 0.15, fog_alpha * 0.96)
+				)
 
 	# Camera frame.
 	draw_rect(
