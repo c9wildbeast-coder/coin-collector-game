@@ -99,9 +99,9 @@ var item_use_buttons = {}
 var maze_level = 1
 var unlocked_maze_level = 1
 
-var maze_cols = 9
-var maze_rows = 13
-var maze_cell_size = 40.0
+var maze_cols = 21
+var maze_rows = 31
+var maze_cell_size = 48.0
 
 var maze_grid: Array = []
 var maze_seen: Array = []
@@ -121,7 +121,7 @@ var maze_move_speed = 480.0
 var maze_camera_offset = Vector2.ZERO
 
 var maze_reward = 0
-var maze_vision_radius = 99
+var maze_vision_radius = 3
 
 # Fog animation speed
 var maze_fog_speed = 3.5
@@ -726,24 +726,26 @@ func start_maze():
 
 # =====================================================
 # MAZE GENERATION
+# DENSE CORRIDOR STYLE - 99 LEVELS
 # =====================================================
 
 func generate_maze():
+	# Larger grids create longer and more detailed corridors.
 	if maze_level <= 20:
-		maze_cols = 9
-		maze_rows = 13
+		maze_cols = 21
+		maze_rows = 31
 	elif maze_level <= 40:
-		maze_cols = 11
-		maze_rows = 15
+		maze_cols = 25
+		maze_rows = 35
 	elif maze_level <= 60:
-		maze_cols = 15
-		maze_rows = 19
+		maze_cols = 29
+		maze_rows = 41
 	elif maze_level <= 80:
-		maze_cols = 17
-		maze_rows = 21
+		maze_cols = 33
+		maze_rows = 45
 	else:
-		maze_cols = 19
-		maze_rows = 23
+		maze_cols = 37
+		maze_rows = 51
 
 	maze_grid.clear()
 	maze_seen.clear()
@@ -777,6 +779,7 @@ func generate_maze():
 		Vector2i(2, 0)
 	]
 
+	# Recursive-backtracking maze generation.
 	while not stack.is_empty():
 		var current = stack.back()
 		var neighbors: Array[Vector2i] = []
@@ -803,33 +806,35 @@ func generate_maze():
 			maze_grid[next.y][next.x] = 0
 			stack.append(next)
 
-	# Fixed exit at the far bottom-right area.
+	# Fixed exit: always at the far bottom-right.
 	maze_exit_cell = Vector2i(maze_cols - 2, maze_rows - 2)
 
+	# Add alternate routes as levels become harder.
 	var extra_openings = 0
 
 	if maze_level <= 20:
-		extra_openings = 0
+		extra_openings = 3
 	elif maze_level <= 40:
 		extra_openings = 5
 	elif maze_level <= 60:
-		extra_openings = 12
+		extra_openings = 8
 	elif maze_level <= 80:
-		extra_openings = 18
+		extra_openings = 12
 	else:
-		extra_openings = 25
+		extra_openings = 16
 
 	for i in range(extra_openings):
 		open_random_maze_wall()
 
+	# Ensure start and exit remain open.
 	maze_grid[1][1] = 0
 	maze_grid[maze_exit_cell.y][maze_exit_cell.x] = 0
 
-	# Keep the existing zoom level unchanged.
+	# Smaller cells show more of the maze while keeping corridors clear.
 	maze_cell_size = clampf(
-		screen_size.x * 0.15,
-		90.0,
-		115.0
+		screen_size.x * 0.075,
+		38.0,
+		54.0
 	)
 
 	maze_origin = Vector2.ZERO
@@ -883,12 +888,12 @@ func update_maze_camera():
 	var viewport_rect = get_maze_viewport_rect()
 	var viewport_center = viewport_rect.position + viewport_rect.size / 2.0
 
-	# Keep the player centered while the maze moves around them.
 	maze_camera_offset = viewport_center - maze_player_position
 
 
 # =====================================================
 # MAZE FOG OF WAR
+# PERSISTENT EXPLORATION + SMOOTH FADE
 # =====================================================
 
 func reveal_maze_area(center: Vector2i):
@@ -899,16 +904,14 @@ func reveal_maze_area(center: Vector2i):
 		for x in range(maze_cols):
 			var cell = Vector2i(x, y)
 
-			if maze_vision_radius >= 99:
-				maze_seen[y][x] = true
-			elif cell.distance_to(center) <= maze_vision_radius:
+			if cell.distance_to(center) <= maze_vision_radius:
 				maze_seen[y][x] = true
 
 
 func initialize_maze_fog():
 	for y in range(maze_rows):
 		for x in range(maze_cols):
-			if is_maze_cell_visible(Vector2i(x, y)):
+			if maze_seen[y][x]:
 				maze_fog_alpha[y][x] = 0.0
 			else:
 				maze_fog_alpha[y][x] = 1.0
@@ -920,28 +923,11 @@ func update_maze_fog(delta):
 
 	for y in range(maze_rows):
 		for x in range(maze_cols):
-			var cell = Vector2i(x, y)
 			var target_alpha = 1.0
 
-			if maze_vision_radius >= 99:
+			# Once discovered, a cell stays revealed.
+			if maze_seen[y][x]:
 				target_alpha = 0.0
-			else:
-				var distance = Vector2(
-					float(cell.x - maze_player_cell.x),
-					float(cell.y - maze_player_cell.y)
-				).length()
-
-				# Smoothly fade the fog around the vision boundary.
-				var fade_start = maxf(0.0, maze_vision_radius - 0.5)
-				var fade_end = maze_vision_radius + 0.8
-
-				var visibility = 1.0 - clampf(
-					(distance - fade_start) / (fade_end - fade_start),
-					0.0,
-					1.0
-				)
-
-				target_alpha = 1.0 - visibility
 
 			maze_fog_alpha[y][x] = move_toward(
 				maze_fog_alpha[y][x],
@@ -970,14 +956,14 @@ func is_maze_cell_visible(cell: Vector2i) -> bool:
 	if cell.y < 0 or cell.y >= maze_rows:
 		return false
 
-	if maze_vision_radius >= 99:
-		return true
+	if maze_seen.is_empty():
+		return false
 
-	return cell.distance_to(maze_player_cell) <= maze_vision_radius
+	return maze_seen[cell.y][cell.x]
 
 
 # =====================================================
-# MAZE MOVEMENT - SMOOTH AND FASTER
+# MAZE MOVEMENT - SMOOTH AND FAST
 # =====================================================
 
 func move_maze_player(direction: Vector2i):
@@ -999,6 +985,7 @@ func move_maze_player(direction: Vector2i):
 	maze_move_target = maze_cell_center(next_cell)
 	maze_is_moving = true
 
+	# Reveal newly explored cells without hiding old ones.
 	reveal_maze_area(maze_player_cell)
 	play_button_sound()
 
@@ -1967,17 +1954,18 @@ func draw_item_buttons():
 
 
 # =====================================================
-# MAZE DRAWING - CAMERA VIEW + SMOOTH FOG
+# MAZE DRAWING - THIN CORRIDOR WALLS
 # =====================================================
 
 func draw_maze_wall_cell(cell: Vector2i):
 	var center = maze_cell_center(cell) + maze_camera_offset
 	var half = maze_cell_size * 0.5
-	var thickness = maxf(3.0, maze_cell_size * 0.13)
+	var thickness = maxf(4.0, maze_cell_size * 0.13)
 
 	var wall_color = Color("#344d68")
 	var highlight_color = Color("#607c98")
 
+	# Center of the wall cell.
 	draw_rect(
 		Rect2(
 			center - Vector2(thickness, thickness) * 0.5,
@@ -1986,6 +1974,7 @@ func draw_maze_wall_cell(cell: Vector2i):
 		wall_color
 	)
 
+	# Connect neighboring wall cells to form continuous thin walls.
 	if cell.x > 0 and maze_grid[cell.y][cell.x - 1] == 1:
 		draw_rect(
 			Rect2(
@@ -2022,6 +2011,7 @@ func draw_maze_wall_cell(cell: Vector2i):
 			wall_color
 		)
 
+	# Small highlight for a slightly raised wall appearance.
 	draw_rect(
 		Rect2(
 			center - Vector2(thickness * 0.25, thickness * 0.25),
@@ -2034,23 +2024,21 @@ func draw_maze_wall_cell(cell: Vector2i):
 func draw_maze():
 	var viewport_rect = get_maze_viewport_rect()
 
-	# Dark background outside the maze camera.
+	# Background outside the maze camera.
 	draw_rect(
 		Rect2(Vector2.ZERO, screen_size),
 		Color("#101c2b")
 	)
 
-	# Visible maze viewing area.
+	# Maze viewing area.
 	draw_rect(
 		viewport_rect,
 		Color("#dce5ed")
 	)
 
-	# Draw all floor cells first.
+	# Draw a consistent floor across the maze.
 	for y in range(maze_rows):
 		for x in range(maze_cols):
-			var cell = Vector2i(x, y)
-
 			var cell_rect = Rect2(
 				maze_origin
 				+ Vector2(x * maze_cell_size, y * maze_cell_size)
@@ -2061,16 +2049,20 @@ func draw_maze():
 			if not cell_rect.intersects(viewport_rect):
 				continue
 
-			if maze_grid[y][x] == 1:
-				draw_rect(cell_rect, Color("#344d68"))
+			if maze_grid[y][x] == 0:
+				draw_rect(cell_rect, Color("#f5f7fa"))
 			else:
+				# Wall cells use the same floor base.
+				# The thin wall lines are drawn separately below.
 				draw_rect(cell_rect, Color("#f5f7fa"))
 
-	# Draw walls.
+	# Draw thin connected wall lines.
 	for y in range(maze_rows):
 		for x in range(maze_cols):
-			var cell = Vector2i(x, y)
+			if maze_grid[y][x] != 1:
+				continue
 
+			var cell = Vector2i(x, y)
 			var cell_rect = Rect2(
 				maze_origin
 				+ Vector2(x * maze_cell_size, y * maze_cell_size)
@@ -2081,10 +2073,9 @@ func draw_maze():
 			if not cell_rect.intersects(viewport_rect):
 				continue
 
-			if maze_grid[y][x] == 1:
-				draw_maze_wall_cell(cell)
+			draw_maze_wall_cell(cell)
 
-	# Draw the exit.
+	# Draw the fixed exit.
 	var exit_position = maze_cell_center(maze_exit_cell) + maze_camera_offset
 	var exit_rect = Rect2(
 		exit_position - Vector2.ONE * maze_cell_size * 0.5,
@@ -2097,6 +2088,7 @@ func draw_maze():
 		if exit_alpha > 0.01:
 			var exit_color = Color("#20bf6b")
 			exit_color.a = exit_alpha
+
 			draw_circle(
 				exit_position,
 				maze_cell_size * 0.38,
@@ -2105,6 +2097,7 @@ func draw_maze():
 
 			var inner_exit_color = Color("#aaffc3")
 			inner_exit_color.a = exit_alpha
+
 			draw_circle(
 				exit_position,
 				maze_cell_size * 0.25,
@@ -2113,6 +2106,7 @@ func draw_maze():
 
 			var exit_text_color = Color("#14532d")
 			exit_text_color.a = exit_alpha
+
 			draw_string(
 				ThemeDB.fallback_font,
 				exit_position + Vector2(-8, 7),
@@ -2123,14 +2117,14 @@ func draw_maze():
 				exit_text_color
 			)
 
-	# Draw the player centered in the camera.
+	# Player stays centered in the camera.
 	draw_character(
 		maze_player_position + maze_camera_offset,
 		maze_is_moving,
 		maze_cell_size / 85.0
 	)
 
-	# Apply the animated fog overlay after drawing the maze.
+	# Persistent fog overlay.
 	for y in range(maze_rows):
 		for x in range(maze_cols):
 			var cell = Vector2i(x, y)
