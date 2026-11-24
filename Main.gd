@@ -13,9 +13,13 @@ var max_lives = 5
 var wallet_coins = 0
 
 var state = "menu"
-var touch_target: Variant = null
 var animation_time = 0.0
 var is_moving = false
+
+# Smooth UI animations
+var transition_alpha = 1.0
+var ui_button_scale = 1.0
+var ui_tween: Tween
 
 # Virtual joystick
 var joystick_center = Vector2.ZERO
@@ -94,7 +98,30 @@ func _ready():
 	load_shop_data()
 	update_buttons()
 	setup_audio()
+	begin_fade()
 	queue_redraw()
+
+
+func change_state(new_state: String):
+	state = new_state
+	begin_fade()
+
+
+func begin_fade():
+	transition_alpha = 0.0
+
+	var tween = create_tween()
+	tween.tween_property(self, "transition_alpha", 1.0, 0.35)
+
+
+func animate_button_press():
+	if ui_tween and ui_tween.is_running():
+		ui_tween.kill()
+
+	ui_button_scale = 1.0
+	ui_tween = create_tween()
+	ui_tween.tween_property(self, "ui_button_scale", 0.94, 0.07)
+	ui_tween.tween_property(self, "ui_button_scale", 1.0, 0.13)
 
 
 func update_buttons():
@@ -127,7 +154,6 @@ func update_buttons():
 			65
 		)
 
-		# Compact item buttons on the right side
 		item_use_buttons[item] = Rect2(
 			screen_size.x - 125,
 			230 + i * 88,
@@ -337,7 +363,6 @@ func start_game():
 	floating_texts.clear()
 
 	player_position = screen_size / 2
-	touch_target = null
 	is_moving = false
 
 	joystick_active = false
@@ -356,7 +381,7 @@ func start_game():
 	for i in range(10):
 		spawn_coin()
 
-	state = "playing"
+	change_state("playing")
 
 
 func spawn_coin():
@@ -393,7 +418,6 @@ func update_rocks(delta):
 
 	if rock_spawn_timer <= 0:
 		spawn_rock()
-
 		rock_spawn_interval = maxf(2.0, 4.0 - score * 0.035)
 		rock_spawn_timer = rock_spawn_interval
 
@@ -433,12 +457,11 @@ func damage_player():
 
 	lives -= 1
 	invulnerability_timer = 1.5
-	touch_target = null
 	joystick_active = false
 	joystick_vector = Vector2.ZERO
 
 	if lives <= 0:
-		state = "game_over"
+		change_state("game_over")
 
 
 func create_rock_impact(pos: Vector2):
@@ -609,6 +632,8 @@ func draw_joystick():
 # GAME LOOP
 
 func _process(delta):
+	animation_time += delta
+
 	if state != "playing":
 		queue_redraw()
 		return
@@ -624,10 +649,10 @@ func _process(delta):
 		invulnerability_timer -= delta
 
 	if magnet_timer > 0:
-		magnet_timer -= delta
+		magnet_timer = maxf(0.0, magnet_timer - delta)
 
 	if speed_timer > 0:
-		speed_timer -= delta
+		speed_timer = maxf(0.0, speed_timer - delta)
 
 	var direction = Input.get_vector(
 		"ui_left", "ui_right",
@@ -638,11 +663,6 @@ func _process(delta):
 		direction = joystick_vector
 
 	is_moving = direction.length() > 0.05
-
-	if is_moving:
-		animation_time += delta * 12.0
-	else:
-		animation_time += delta * 2.0
 
 	var current_speed = player_speed
 
@@ -710,21 +730,24 @@ func handle_press(pos):
 
 		elif play_button.has_point(pos):
 			play_button_sound()
+			animate_button_press()
 			start_game()
 
 		elif shop_button.has_point(pos):
 			play_button_sound()
-			state = "shop"
+			animate_button_press()
+			change_state("shop")
 
 	elif state == "shop":
 		if shop_back_button.has_point(pos):
 			play_button_sound()
-			state = "menu"
+			change_state("menu")
 			return
 
 		for item in item_order:
 			if item_buy_buttons[item].has_point(pos):
 				buy_item(item)
+				animate_button_press()
 				return
 
 	elif state == "playing":
@@ -734,13 +757,15 @@ func handle_press(pos):
 
 		elif pause_button.has_point(pos):
 			play_button_sound()
-			state = "paused"
+			animate_button_press()
 			stop_joystick()
+			change_state("paused")
 
 		else:
 			for item in item_order:
 				if item_use_buttons[item].has_point(pos):
 					activate_item(item)
+					animate_button_press()
 					return
 
 	elif state == "paused":
@@ -750,24 +775,29 @@ func handle_press(pos):
 
 		elif resume_button.has_point(pos):
 			play_button_sound()
-			state = "playing"
+			animate_button_press()
+			change_state("playing")
 
 		elif restart_button.has_point(pos):
 			play_button_sound()
+			animate_button_press()
 			start_game()
 
 		elif home_button.has_point(pos):
 			play_button_sound()
-			state = "menu"
+			animate_button_press()
+			change_state("menu")
 
 	elif state == "game_over":
 		if restart_button.has_point(pos):
 			play_button_sound()
+			animate_button_press()
 			start_game()
 
 		elif home_button.has_point(pos):
 			play_button_sound()
-			state = "menu"
+			animate_button_press()
+			change_state("menu")
 
 
 # CHARACTER
@@ -776,7 +806,14 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
 	var swing = 0.0
 
 	if running:
-		swing = sin(animation_time) * 13.0
+		swing = sin(animation_time * 10.0) * 13.0
+
+	var idle_bounce = 0.0
+
+	if not running:
+		idle_bounce = sin(animation_time * 3.0) * 2.5
+
+	pos.y += idle_bounce
 
 	draw_set_transform(pos, 0.0, Vector2.ONE * scale_factor)
 
@@ -843,10 +880,25 @@ func draw_rocks():
 		var size: float = rock["size"]
 
 		if rock["phase"] == "warning":
-			var pulse = 1.0 + sin(Time.get_ticks_msec() * 0.015) * 0.08
+			var pulse = 1.0 + sin(animation_time * 8.0) * 0.12
+			var warning_alpha = 0.25 + absf(sin(animation_time * 8.0)) * 0.35
 
-			draw_circle(target, size * 1.4 * pulse, Color(0.9, 0.15, 0.1, 0.22))
-			draw_arc(target, size * 1.4 * pulse, 0, TAU, 48, Color("#ff4444"), 4)
+			draw_circle(
+				target,
+				size * 1.4 * pulse,
+				Color(0.9, 0.15, 0.1, warning_alpha)
+			)
+
+			draw_arc(
+				target,
+				size * 1.4 * pulse,
+				0,
+				TAU,
+				48,
+				Color("#ff4444"),
+				4
+			)
+
 			draw_circle(target, 7, Color("#ff4444"))
 
 		elif rock["phase"] == "falling":
@@ -890,16 +942,24 @@ func draw_collection_effects():
 
 # BUTTON DRAWING
 
-func draw_button(rect, label, color):
-	draw_rect(rect, color)
-	draw_rect(rect, Color.WHITE, false, 3)
+func draw_button(rect: Rect2, label: String, color: Color):
+	var center = rect.position + rect.size / 2
+	var scaled_size = rect.size * ui_button_scale
+
+	var scaled_rect = Rect2(
+		center - scaled_size / 2,
+		scaled_size
+	)
+
+	draw_rect(scaled_rect, color)
+	draw_rect(scaled_rect, Color.WHITE, false, 3)
 
 	draw_string(
 		ThemeDB.fallback_font,
-		Vector2(rect.position.x, rect.position.y + rect.size.y / 2 + 10),
+		Vector2(scaled_rect.position.x, scaled_rect.position.y + scaled_rect.size.y / 2 + 10),
 		label,
 		HORIZONTAL_ALIGNMENT_CENTER,
-		rect.size.x,
+		scaled_rect.size.x,
 		32,
 		Color.WHITE
 	)
@@ -1132,10 +1192,11 @@ func _draw():
 			Color("#f1c40f")
 		)
 
-		draw_character(Vector2(center, screen_size.y * 0.37), true, 0.9)
+		draw_character(Vector2(center, screen_size.y * 0.37), false, 0.9)
 
-		draw_circle(Vector2(center - 65, screen_size.y * 0.37), 18, Color("#f1c40f"))
-		draw_circle(Vector2(center + 65, screen_size.y * 0.37), 18, Color("#f1c40f"))
+		var coin_bob = sin(animation_time * 3.0) * 5.0
+		draw_circle(Vector2(center - 65, screen_size.y * 0.37 + coin_bob), 18, Color("#f1c40f"))
+		draw_circle(Vector2(center + 65, screen_size.y * 0.37 - coin_bob), 18, Color("#f1c40f"))
 
 		draw_button(play_button, "PLAY", Color("#27ae60"))
 		draw_button(shop_button, "SHOP", Color("#d68910"))
@@ -1166,9 +1227,22 @@ func _draw():
 	elif state == "playing" or state == "paused":
 		draw_rocks()
 
-		for coin in coins:
-			draw_circle(coin, 20, Color("#f1c40f"))
-			draw_circle(coin, 12, Color("#ffe680"))
+		for i in range(coins.size()):
+			var coin = coins[i]
+			var bob = sin(animation_time * 3.0 + i * 1.7) * 5.0
+			var squash = absf(cos(animation_time * 4.0 + i)) * 0.65 + 0.35
+
+			draw_set_transform(
+				coin + Vector2(0, bob),
+				animation_time * 0.5,
+				Vector2(squash, 1.0)
+			)
+
+			draw_circle(Vector2.ZERO, 20, Color("#d99b00"))
+			draw_circle(Vector2.ZERO, 16, Color("#f1c40f"))
+			draw_circle(Vector2.ZERO, 10, Color("#ffe680"))
+
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 		if invulnerability_timer <= 0 or int(Time.get_ticks_msec() / 100) % 2 == 0:
 			draw_character(player_position, is_moving, 1.0)
@@ -1267,3 +1341,10 @@ func _draw():
 		draw_button(restart_button, "TRY AGAIN", Color("#27ae60"))
 		draw_button(home_button, "MAIN MENU", Color("#c0392b"))
 		draw_music_button()
+
+	# Fade in the current screen
+	if transition_alpha < 1.0:
+		draw_rect(
+			Rect2(Vector2.ZERO, screen_size),
+			Color(0, 0, 0, 1.0 - transition_alpha)
+		)
