@@ -158,57 +158,25 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
     draw_set_transform(pos, 0.0, Vector2.ONE * scale_factor)
 
     # Legs
-    draw_line(
-        Vector2(-8, 17),
-        Vector2(-10 + swing, 34),
-        Color("#202638"), 10
-    )
-    draw_line(
-        Vector2(8, 17),
-        Vector2(10 - swing, 34),
-        Color("#202638"), 10
-    )
+    draw_line(Vector2(-8, 17), Vector2(-10 + swing, 34), Color("#202638"), 10)
+    draw_line(Vector2(8, 17), Vector2(10 - swing, 34), Color("#202638"), 10)
 
-    # Red sneakers
-    draw_line(
-        Vector2(-10 + swing, 34),
-        Vector2(-19 + swing, 39),
-        Color("#e74c3c"), 12
-    )
-    draw_line(
-        Vector2(10 - swing, 34),
-        Vector2(19 - swing, 39),
-        Color("#e74c3c"), 12
-    )
+    # Shoes
+    draw_line(Vector2(-10 + swing, 34), Vector2(-19 + swing, 39), Color("#e74c3c"), 12)
+    draw_line(Vector2(10 - swing, 34), Vector2(19 - swing, 39), Color("#e74c3c"), 12)
 
-    draw_line(
-        Vector2(-20 + swing, 43),
-        Vector2(-10 + swing, 43),
-        Color.WHITE, 3
-    )
-    draw_line(
-        Vector2(10 - swing, 43),
-        Vector2(20 - swing, 43),
-        Color.WHITE, 3
-    )
+    draw_line(Vector2(-20 + swing, 43), Vector2(-10 + swing, 43), Color.WHITE, 3)
+    draw_line(Vector2(10 - swing, 43), Vector2(20 - swing, 43), Color.WHITE, 3)
 
     # Arms
-    draw_line(
-        Vector2(-14, -7),
-        Vector2(-24 - swing * 0.5, 7),
-        Color("#b92e28"), 11
-    )
-    draw_line(
-        Vector2(14, -7),
-        Vector2(24 + swing * 0.5, 7),
-        Color("#b92e28"), 11
-    )
+    draw_line(Vector2(-14, -7), Vector2(-24 - swing * 0.5, 7), Color("#b92e28"), 11)
+    draw_line(Vector2(14, -7), Vector2(24 + swing * 0.5, 7), Color("#b92e28"), 11)
 
     # Hands
     draw_circle(Vector2(-24 - swing * 0.5, 8), 6, Color("#ffd0aa"))
     draw_circle(Vector2(24 + swing * 0.5, 8), 6, Color("#ffd0aa"))
 
-    # Hoodie body
+    # Hoodie
     var body = PackedVector2Array([
         Vector2(-17, -15),
         Vector2(17, -15),
@@ -220,15 +188,7 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
     draw_line(Vector2(0, -12), Vector2(0, 18), Color("#ff8a80"), 2)
 
     # Hood
-    draw_arc(
-        Vector2(0, -9),
-        18,
-        PI,
-        TAU,
-        32,
-        Color("#a92725"),
-        5
-    )
+    draw_arc(Vector2(0, -9), 18, PI, TAU, 32, Color("#a92725"), 5)
 
     # Ears
     draw_circle(Vector2(-18, -31), 6, Color("#ffd0aa"))
@@ -257,20 +217,11 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
     draw_circle(Vector2(7, -32), 3.5, Color("#171717"))
     draw_circle(Vector2(-6, -32), 3.5, Color("#171717"))
 
-    # Eye highlights
     draw_circle(Vector2(8, -34), 1.2, Color.WHITE)
     draw_circle(Vector2(-5, -34), 1.2, Color.WHITE)
 
     # Smile
-    draw_arc(
-        Vector2(2, -23),
-        5,
-        0.2,
-        PI - 0.2,
-        12,
-        Color("#9b5142"),
-        1.5
-    )
+    draw_arc(Vector2(2, -23), 5, 0.2, PI - 0.2, 12, Color("#9b5142"), 1.5)
 
     draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
@@ -289,24 +240,68 @@ func draw_button(rect, label, color):
     )
 
 func draw_background():
+    # Sky
+    draw_rect(Rect2(Vector2.ZERO, screen_size), Color("#78d7ff"))
+
+    # Sun
+    draw_circle(Vector2(screen_size.x - 85, 120), 55, Color("#ffe66d"))
+
+    # Clouds
+    for cloud_pos in [
+        Vector2(100, 150),
+        Vector2(350, 230),
+        Vector2(550, 110)
+    ]:
+        draw_circle(cloud_pos, 30, Color.WHITE)
+        draw_circle(cloud_pos + Vector2(30, 5), 25, Color.WHITE)
+        draw_circle(cloud_pos + Vector2(-30, 8), 22, Color.WHITE)
+
+    # Hills
+    var hills = PackedVector2Array([
+        Vector2(0, 390),
+        Vector2(150, 270),
+        Vector2(300, 390),
+        Vector2(470, 260),
+        Vector2(720, 400),
+        Vector2(720, 1280),
+        Vector2(0, 1280)
+    ])
+
+    draw_colored_polygon(hills, Color("#80c96b"))
+
+    # Grass
     draw_rect(
-        Rect2(Vector2.ZERO, screen_size),
-        Color("#17252b")
+        Rect2(0, 400, screen_size.x, screen_size.y - 400),
+        Color("#65bd55")
     )
 
-    for x in range(0, int(screen_size.x), 60):
+    # Grass details
+    for i in range(90):
+        var x = float((i * 83) % int(screen_size.x))
+        var y = float(420 + (i * 137) % int(screen_size.y - 450))
+
         draw_line(
-            Vector2(x, 0),
-            Vector2(x, screen_size.y),
-            Color("#24363c"), 1
+            Vector2(x, y),
+            Vector2(x + 5, y - 9),
+            Color("#8cdb69"),
+            3
         )
 
-    for y in range(0, int(screen_size.y), 60):
-        draw_line(
-            Vector2(0, y),
-            Vector2(screen_size.x, y),
-            Color("#24363c"), 1
+    # Trees
+    for tree_pos in [
+        Vector2(35, 350),
+        Vector2(675, 430),
+        Vector2(45, 750),
+        Vector2(680, 850),
+        Vector2(40, 1100)
+    ]:
+        draw_rect(
+            Rect2(tree_pos.x - 7, tree_pos.y, 14, 45),
+            Color("#85502e")
         )
+
+        draw_circle(tree_pos + Vector2(0, -12), 32, Color("#258b43"))
+        draw_circle(tree_pos + Vector2(-15, -25), 20, Color("#38a852"))
 
 func _draw():
     draw_background()
@@ -324,11 +319,7 @@ func _draw():
             Color("#f1c40f")
         )
 
-        draw_character(
-            Vector2(center, screen_size.y * 0.39),
-            true,
-            0.9
-        )
+        draw_character(Vector2(center, screen_size.y * 0.39), true, 0.9)
 
         draw_circle(Vector2(center - 65, screen_size.y * 0.39), 18, Color("#f1c40f"))
         draw_circle(Vector2(center + 65, screen_size.y * 0.39), 18, Color("#f1c40f"))
