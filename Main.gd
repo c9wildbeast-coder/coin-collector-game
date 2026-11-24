@@ -5,10 +5,10 @@ var screen_size = Vector2(720, 1280)
 var player_position = Vector2.ZERO
 var player_speed = 350.0
 var coins: Array[Vector2] = []
-var mud_puddles: Array[Vector2] = []
 
 var score = 0
 var best_score = 0
+var lives = 3
 
 var state = "menu"
 var touch_target: Variant = null
@@ -19,8 +19,11 @@ var is_moving = false
 var particles: Array[Dictionary] = []
 var floating_texts: Array[Dictionary] = []
 
-var movement_velocity = Vector2.ZERO
-var on_mud = false
+# Falling rocks
+var rocks: Array[Dictionary] = []
+var rock_spawn_timer = 1.5
+var rock_spawn_interval = 2.8
+var invulnerability_timer = 0.0
 
 var play_button = Rect2()
 var pause_button = Rect2()
@@ -52,9 +55,9 @@ func update_buttons():
 	pause_button = Rect2(screen_size.x - 105, 25, 80, 65)
 	music_button = Rect2(screen_size.x - 205, 25, 90, 65)
 
-	resume_button = Rect2(center - 140, screen_size.y * 0.43, 280, 75)
-	restart_button = Rect2(center - 140, screen_size.y * 0.54, 280, 75)
-	home_button = Rect2(center - 140, screen_size.y * 0.65, 280, 75)
+	resume_button = Rect2(center - 140, screen_size.y * 0.38, 280, 75)
+	restart_button = Rect2(center - 140, screen_size.y * 0.51, 280, 75)
+	home_button = Rect2(center - 140, screen_size.y * 0.64, 280, 75)
 
 
 # AUDIO SYSTEM
@@ -180,19 +183,20 @@ func toggle_music():
 
 func start_game():
 	score = 0
+	lives = 3
+
 	coins.clear()
-	mud_puddles.clear()
+	rocks.clear()
 	particles.clear()
 	floating_texts.clear()
 
 	player_position = screen_size / 2
 	touch_target = null
 	is_moving = false
-	movement_velocity = Vector2.ZERO
-	on_mud = false
 
-	for i in range(4):
-		spawn_mud_puddle()
+	rock_spawn_timer = 1.5
+	rock_spawn_interval = 2.8
+	invulnerability_timer = 0.0
 
 	for i in range(10):
 		spawn_coin()
@@ -224,23 +228,98 @@ func spawn_coin():
 	coins.append(coin)
 
 
-# MUD PUDDLES
+# FALLING ROCK SYSTEM
 
-func spawn_mud_puddle():
-	var puddle = Vector2(
-		randf_range(90, screen_size.x - 90),
-		randf_range(470, screen_size.y - 110)
+func spawn_rock():
+	var target_position = Vector2(
+		randf_range(75, screen_size.x - 75),
+		randf_range(260, screen_size.y - 100)
 	)
 
-	mud_puddles.append(puddle)
+	rocks.append({
+		"position": Vector2(target_position.x, -100),
+		"target": target_position,
+		"phase": "warning",
+		"timer": 0.9,
+		"speed": randf_range(900.0, 1150.0),
+		"size": randf_range(32.0, 45.0)
+	})
 
 
-func is_position_on_mud(pos: Vector2) -> bool:
-	for puddle in mud_puddles:
-		if pos.distance_to(puddle) < 65:
-			return true
+func update_rocks(delta):
+	rock_spawn_timer -= delta
 
-	return false
+	if rock_spawn_timer <= 0:
+		spawn_rock()
+
+		rock_spawn_interval = maxf(0.9, 2.8 - score * 0.035)
+		rock_spawn_timer = rock_spawn_interval
+
+	for i in range(rocks.size() - 1, -1, -1):
+		var rock = rocks[i]
+
+		if rock["phase"] == "warning":
+			rock["timer"] -= delta
+
+			if rock["timer"] <= 0:
+				rock["phase"] = "falling"
+
+		elif rock["phase"] == "falling":
+			rock["position"].y += rock["speed"] * delta
+
+			if rock["position"].y >= rock["target"].y:
+				var impact_position: Vector2 = rock["target"]
+				var rock_size: float = rock["size"]
+
+				create_rock_impact(impact_position)
+
+				if player_position.distance_to(impact_position) < rock_size + 32:
+					damage_player()
+
+				rocks.remove_at(i)
+
+
+func damage_player():
+	if invulnerability_timer > 0:
+		return
+
+	lives -= 1
+	invulnerability_timer = 1.5
+
+	movement_velocity_placeholder()
+
+	if lives <= 0:
+		state = "game_over"
+		touch_target = null
+
+
+func movement_velocity_placeholder():
+	# Small knockback from the impact.
+	touch_target = null
+
+
+func create_rock_impact(pos: Vector2):
+	for i in range(20):
+		var angle = randf_range(0.0, TAU)
+		var speed = randf_range(100.0, 320.0)
+
+		var velocity = Vector2(cos(angle), sin(angle)) * speed
+
+		var colors = [
+			Color("#777777"),
+			Color("#a0a0a0"),
+			Color("#6b5544"),
+			Color("#c2b8a5")
+		]
+
+		particles.append({
+			"position": pos,
+			"velocity": velocity,
+			"life": 0.65,
+			"max_life": 0.65,
+			"color": colors[randi() % colors.size()],
+			"size": randf_range(4.0, 9.0)
+		})
 
 
 # COLLECTION EFFECTS
@@ -300,6 +379,14 @@ func _process(delta):
 		return
 
 	update_effects(delta)
+	update_rocks(delta)
+
+	if state != "playing":
+		queue_redraw()
+		return
+
+	if invulnerability_timer > 0:
+		invulnerability_timer -= delta
 
 	var direction = Input.get_vector(
 		"ui_left", "ui_right",
@@ -310,44 +397,18 @@ func _process(delta):
 		if player_position.distance_to(touch_target) > 10:
 			direction = player_position.direction_to(touch_target)
 
-	on_mud = is_position_on_mud(player_position)
-
-	if on_mud:
-		# Slippery movement
-		if movement_velocity.length() < 20 and direction.length() > 0.05:
-			movement_velocity = direction * player_speed * 0.7
-
-		movement_velocity += direction * 260.0 * delta
-
-		# Keep sliding even when steering stops
-		movement_velocity *= pow(0.985, delta * 60.0)
-
-		movement_velocity = movement_velocity.limit_length(620.0)
-
-	else:
-		# Normal movement
-		movement_velocity = direction * player_speed
-
-	is_moving = movement_velocity.length() > 20
+	is_moving = direction.length() > 0.05
 
 	if is_moving:
 		animation_time += delta * 12.0
 	else:
 		animation_time += delta * 2.0
 
-	player_position += movement_velocity * delta
-
-	# Screen boundaries
-	if player_position.x < 40 or player_position.x > screen_size.x - 40:
-		movement_velocity.x = 0
-
-	if player_position.y < 140 or player_position.y > screen_size.y - 45:
-		movement_velocity.y = 0
+	player_position += direction * player_speed * delta
 
 	player_position.x = clampf(player_position.x, 40, screen_size.x - 40)
 	player_position.y = clampf(player_position.y, 140, screen_size.y - 45)
 
-	# Coin collection
 	for i in range(coins.size() - 1, -1, -1):
 		if player_position.distance_to(coins[i]) < 50:
 			var collected_position = coins[i]
@@ -439,16 +500,25 @@ func handle_press(pos):
 			play_button_sound()
 			state = "menu"
 
+	elif state == "game_over":
+		if restart_button.has_point(pos):
+			play_button_sound()
+			start_game()
+
+		elif home_button.has_point(pos):
+			play_button_sound()
+			state = "menu"
+
 
 # CHARACTER
 
-func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0, rotation: float = 0.0):
+func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
 	var swing = 0.0
 
 	if running:
 		swing = sin(animation_time) * 13.0
 
-	draw_set_transform(pos, rotation, Vector2.ONE * scale_factor)
+	draw_set_transform(pos, 0.0, Vector2.ONE * scale_factor)
 
 	draw_line(Vector2(-8, 17), Vector2(-10 + swing, 34), Color("#202638"), 10)
 	draw_line(Vector2(8, 17), Vector2(10 - swing, 34), Color("#202638"), 10)
@@ -508,55 +578,66 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0, rota
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
-# MUD DRAWING
+# ROCK DRAWING
 
-func draw_mud_puddles():
-	for puddle in mud_puddles:
-		# Outer shadow
-		draw_circle(
-			puddle + Vector2(0, 7),
-			66,
-			Color("#476b38")
-		)
+func draw_rocks():
+	for rock in rocks:
+		var target: Vector2 = rock["target"]
+		var size: float = rock["size"]
 
-		# Dark muddy edge
-		draw_circle(
-			puddle,
-			62,
-			Color("#65452e")
-		)
+		# Warning shadow
+		if rock["phase"] == "warning":
+			var pulse = 1.0 + sin(Time.get_ticks_msec() * 0.015) * 0.08
 
-		# Mud center
-		draw_circle(
-			puddle,
-			53,
-			Color("#805332")
-		)
+			draw_circle(
+				target,
+				size * 1.4 * pulse,
+				Color(0.9, 0.15, 0.1, 0.22)
+			)
 
-		draw_circle(
-			puddle + Vector2(-15, -8),
-			23,
-			Color("#96653b")
-		)
+			draw_arc(
+				target,
+				size * 1.4 * pulse,
+				0,
+				TAU,
+				48,
+				Color("#ff4444"),
+				4
+			)
 
-		draw_circle(
-			puddle + Vector2(20, 15),
-			17,
-			Color("#6b452b")
-		)
+			draw_circle(target, 7, Color("#ff4444"))
 
-		# Mud shine
-		draw_circle(
-			puddle + Vector2(-18, -20),
-			6,
-			Color("#c49a65")
-		)
+		# Falling rock
+		elif rock["phase"] == "falling":
+			var pos: Vector2 = rock["position"]
 
-		draw_circle(
-			puddle + Vector2(23, -12),
-			4,
-			Color("#c49a65")
-		)
+			draw_circle(
+				pos,
+				size,
+				Color("#666666")
+			)
+
+			draw_circle(
+				pos + Vector2(-size * 0.25, -size * 0.25),
+				size * 0.48,
+				Color("#999999")
+			)
+
+			draw_circle(
+				pos + Vector2(size * 0.3, size * 0.2),
+				size * 0.25,
+				Color("#4c4c4c")
+			)
+
+			draw_arc(
+				pos,
+				size,
+				0,
+				TAU,
+				32,
+				Color("#444444"),
+				3
+			)
 
 
 # COLLECTION EFFECT DRAWING
@@ -734,30 +815,17 @@ func _draw():
 		)
 
 	elif state == "playing" or state == "paused":
-		draw_mud_puddles()
+		draw_rocks()
 
 		for coin in coins:
 			draw_circle(coin, 20, Color("#f1c40f"))
 			draw_circle(coin, 12, Color("#ffe680"))
 
-		var character_tilt = 0.0
+		# Blink while temporarily protected
+		if invulnerability_timer <= 0 or int(Time.get_ticks_msec() / 100) % 2 == 0:
+			draw_character(player_position, is_moving, 1.0)
 
-		if on_mud:
-			character_tilt = clampf(movement_velocity.x / 620.0, -1.0, 1.0) * 0.25
-
-		draw_character(player_position, is_moving, 1.0, character_tilt)
 		draw_collection_effects()
-
-		if on_mud:
-			draw_string(
-				ThemeDB.fallback_font,
-				player_position + Vector2(-55, -75),
-				"SLIPPING!",
-				HORIZONTAL_ALIGNMENT_CENTER,
-				110,
-				20,
-				Color("#ffe66d")
-			)
 
 		draw_string(
 			ThemeDB.fallback_font,
@@ -779,6 +847,16 @@ func _draw():
 			Color("#f1c40f")
 		)
 
+		draw_string(
+			ThemeDB.fallback_font,
+			Vector2(25, 145),
+			"LIVES: " + "♥".repeat(lives),
+			HORIZONTAL_ALIGNMENT_LEFT,
+			-1,
+			30,
+			Color("#ff5555")
+		)
+
 		draw_music_button()
 		draw_button(pause_button, "II", Color("#2980b9"))
 
@@ -790,7 +868,7 @@ func _draw():
 
 			draw_string(
 				ThemeDB.fallback_font,
-				Vector2(0, screen_size.y * 0.34),
+				Vector2(0, screen_size.y * 0.30),
 				"PAUSED",
 				HORIZONTAL_ALIGNMENT_CENTER,
 				screen_size.x,
@@ -803,3 +881,30 @@ func _draw():
 			draw_button(home_button, "MAIN MENU", Color("#c0392b"))
 
 			draw_music_button()
+
+	elif state == "game_over":
+		draw_string(
+			ThemeDB.fallback_font,
+			Vector2(0, screen_size.y * 0.29),
+			"GAME OVER!",
+			HORIZONTAL_ALIGNMENT_CENTER,
+			screen_size.x,
+			55,
+			Color("#ff5555")
+		)
+
+		draw_character(Vector2(center, screen_size.y * 0.39), false, 1.0)
+
+		draw_string(
+			ThemeDB.fallback_font,
+			Vector2(0, screen_size.y * 0.48),
+			"COINS: " + str(score),
+			HORIZONTAL_ALIGNMENT_CENTER,
+			screen_size.x,
+			34,
+			Color.WHITE
+		)
+
+		draw_button(restart_button, "TRY AGAIN", Color("#27ae60"))
+		draw_button(home_button, "MAIN MENU", Color("#c0392b"))
+		draw_music_button()
