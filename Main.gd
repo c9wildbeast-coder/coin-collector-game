@@ -1,4 +1,3 @@
-
 extends Node2D
 
 # =====================================================
@@ -686,12 +685,14 @@ func get_maze_difficulty() -> String:
 
 
 func get_maze_vision_radius() -> int:
-	if maze_level <= 40:
-		return 99
-	elif maze_level <= 60:
+	if maze_level <= 20:
 		return 3
-	elif maze_level <= 80:
+	elif maze_level <= 40:
 		return 2
+	elif maze_level <= 60:
+		return 2
+	elif maze_level <= 80:
+		return 1
 	else:
 		return 1
 
@@ -814,14 +815,13 @@ func generate_maze():
 	maze_grid[1][1] = 0
 	maze_grid[maze_exit_cell.y][maze_exit_cell.x] = 0
 
-	# Larger cells create a zoomed-in maze view.
+	# Increased cell size for a closer, more zoomed-in maze.
 	maze_cell_size = clampf(
-		screen_size.x * 0.125,
-		50.0,
-		90.0
+		screen_size.x * 0.15,
+		90.0,
+		115.0
 	)
 
-	# Maze world coordinates start from the top-left.
 	maze_origin = Vector2.ZERO
 
 
@@ -896,16 +896,18 @@ func reveal_maze_area(center: Vector2i):
 
 
 func is_maze_cell_visible(cell: Vector2i) -> bool:
-	if maze_vision_radius >= 99:
-		return true
-
 	if cell.x < 0 or cell.x >= maze_cols:
 		return false
 
 	if cell.y < 0 or cell.y >= maze_rows:
 		return false
 
-	return maze_seen[cell.y][cell.x]
+	if maze_vision_radius >= 99:
+		return true
+
+	# Only reveal the area immediately surrounding the player.
+	# Previously explored areas become hidden again.
+	return cell.distance_to(maze_player_cell) <= maze_vision_radius
 
 
 # =====================================================
