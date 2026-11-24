@@ -23,7 +23,7 @@ var floating_texts: Array[Dictionary] = []
 # Falling rocks
 var rocks: Array[Dictionary] = []
 var rock_spawn_timer = 1.5
-var rock_spawn_interval = 2.8
+var rock_spawn_interval = 4.0
 var invulnerability_timer = 0.0
 
 # Shop inventory
@@ -330,7 +330,7 @@ func start_game():
 	is_moving = false
 
 	rock_spawn_timer = 1.5
-	rock_spawn_interval = 2.8
+	rock_spawn_interval = 4.0
 	invulnerability_timer = 0.0
 
 	magnet_timer = 0.0
@@ -377,7 +377,8 @@ func update_rocks(delta):
 
 	if rock_spawn_timer <= 0:
 		spawn_rock()
-		rock_spawn_interval = maxf(0.9, 2.8 - score * 0.035)
+
+		rock_spawn_interval = maxf(2.0, 4.0 - score * 0.035)
 		rock_spawn_timer = rock_spawn_interval
 
 	for i in range(rocks.size() - 1, -1, -1):
