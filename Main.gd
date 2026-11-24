@@ -101,7 +101,7 @@ var unlocked_maze_level = 1
 
 var maze_cols = 21
 var maze_rows = 31
-var maze_cell_size = 48.0
+var maze_cell_size = 28.0
 
 var maze_grid: Array = []
 var maze_seen: Array = []
