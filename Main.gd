@@ -1,10 +1,17 @@
 
 extends Node2D
 
+# =====================================================
+# COIN COLLECTOR
+# CLASSIC MODE + MAZE MODE (99 LEVELS)
+# =====================================================
+
 var screen_size = Vector2(720, 1280)
-var player_position = Vector2.ZERO
+var state = "menu"
+var animation_time = 0.0
 var player_speed = 350.0
-var coins: Array[Vector2] = []
+var player_position = Vector2.ZERO
+var is_moving = false
 
 var score = 0
 var best_score = 0
@@ -12,21 +19,23 @@ var lives = 3
 var max_lives = 5
 var wallet_coins = 0
 
-var state = "menu"
-var animation_time = 0.0
-var is_moving = false
+var coins: Array[Vector2] = []
+var rocks: Array[Dictionary] = []
+var particles: Array[Dictionary] = []
+var floating_texts: Array[Dictionary] = []
 
-# Smooth UI animations
 var transition_alpha = 1.0
 var ui_button_scale = 1.0
 var ui_tween: Tween
 
-# Animated HUD counters
 var display_score = 0.0
 var display_wallet = 0.0
 var hud_pulse_timer = 0.0
 
-# Virtual joystick
+# =====================================================
+# JOYSTICK
+# =====================================================
+
 var joystick_center = Vector2.ZERO
 var joystick_vector = Vector2.ZERO
 var joystick_radius = 82.0
@@ -34,22 +43,30 @@ var joystick_active = false
 var joystick_touch_index = -1
 var joystick_mouse_active = false
 
-var particles: Array[Dictionary] = []
-var floating_texts: Array[Dictionary] = []
+# =====================================================
+# CLASSIC MODE
+# =====================================================
 
-# Falling rocks
-var rocks: Array[Dictionary] = []
 var rock_spawn_timer = 1.5
 var rock_spawn_interval = 4.0
 var invulnerability_timer = 0.0
 
-# Shop inventory
+var magnet_timer = 0.0
+var speed_timer = 0.0
+var shield_active = false
+
+# =====================================================
+# SHOP
+# =====================================================
+
 var inventory = {
 	"magnet": 0,
 	"shield": 0,
 	"speed": 0,
 	"life": 0
 }
+
+var item_order = ["magnet", "shield", "speed", "life"]
 
 var item_names = {
 	"magnet": "COIN MAGNET",
@@ -72,47 +89,82 @@ var item_prices = {
 	"life": 250
 }
 
-var item_order = ["magnet", "shield", "speed", "life"]
 var item_buy_buttons = {}
 var item_use_buttons = {}
 
-var magnet_timer = 0.0
-var speed_timer = 0.0
-var shield_active = false
+# =====================================================
+# MAZE MODE
+# =====================================================
 
-# Buttons
+var maze_level = 1
+var unlocked_maze_level = 1
+
+var maze_cols = 9
+var maze_rows = 13
+var maze_cell_size = 40.0
+
+var maze_grid: Array = []
+var maze_origin = Vector2.ZERO
+
+var maze_player_cell = Vector2i(1, 1)
+var maze_exit_cell = Vector2i.ZERO
+var maze_player_position = Vector2.ZERO
+
+var maze_move_cooldown = 0.0
+var maze_reward = 0
+
+# =====================================================
+# BUTTONS
+# =====================================================
+
 var play_button = Rect2()
 var shop_button = Rect2()
 var shop_back_button = Rect2()
+
 var pause_button = Rect2()
 var resume_button = Rect2()
 var restart_button = Rect2()
 var home_button = Rect2()
 var music_button = Rect2()
 
-# Mode selection buttons
 var classic_mode_button = Rect2()
 var maze_mode_button = Rect2()
 var mode_back_button = Rect2()
 
-# Audio
+var maze_play_button = Rect2()
+var maze_back_button = Rect2()
+var maze_next_button = Rect2()
+var maze_select_button = Rect2()
+
+# =====================================================
+# AUDIO
+# =====================================================
+
 var coin_sound_player: AudioStreamPlayer
 var button_sound_player: AudioStreamPlayer
 var music_player: AudioStreamPlayer
 var music_enabled = true
 
 
+# =====================================================
+# READY
+# =====================================================
+
 func _ready():
 	randomize()
+
 	screen_size = get_viewport_rect().size
+
 	load_best_score()
 	load_shop_data()
+	load_maze_data()
 
 	display_score = float(score)
 	display_wallet = float(wallet_coins)
 
 	update_buttons()
 	setup_audio()
+
 	begin_fade()
 	queue_redraw()
 
@@ -126,7 +178,7 @@ func begin_fade():
 	transition_alpha = 0.0
 
 	var tween = create_tween()
-	tween.tween_property(self, "transition_alpha", 1.0, 0.35)
+	tween.tween_property(self, "transition_alpha", 1.0, 0.3)
 
 
 func animate_button_press():
@@ -134,13 +186,18 @@ func animate_button_press():
 		ui_tween.kill()
 
 	ui_button_scale = 1.0
+
 	ui_tween = create_tween()
 	ui_tween.tween_property(self, "ui_button_scale", 0.94, 0.07)
 	ui_tween.tween_property(self, "ui_button_scale", 1.0, 0.13)
 
 
+# =====================================================
+# BUTTON POSITIONS
+# =====================================================
+
 func update_buttons():
-	var center = screen_size.x / 2
+	var center = screen_size.x / 2.0
 
 	joystick_center = Vector2(center, screen_size.y - 140)
 
@@ -148,10 +205,15 @@ func update_buttons():
 	shop_button = Rect2(center - 140, screen_size.y * 0.62, 280, 80)
 	shop_back_button = Rect2(center - 140, screen_size.y - 145, 280, 75)
 
-	# Mode selection buttons
 	classic_mode_button = Rect2(center - 160, screen_size.y * 0.43, 320, 85)
 	maze_mode_button = Rect2(center - 160, screen_size.y * 0.56, 320, 85)
 	mode_back_button = Rect2(center - 140, screen_size.y * 0.72, 280, 70)
+
+	maze_play_button = Rect2(center - 160, screen_size.y * 0.55, 320, 85)
+	maze_back_button = Rect2(center - 140, screen_size.y * 0.70, 280, 70)
+
+	maze_next_button = Rect2(center - 140, screen_size.y * 0.58, 280, 75)
+	maze_select_button = Rect2(center - 140, screen_size.y * 0.70, 280, 75)
 
 	pause_button = Rect2(screen_size.x - 105, 25, 80, 65)
 	music_button = Rect2(screen_size.x - 205, 25, 90, 65)
@@ -182,7 +244,9 @@ func update_buttons():
 		)
 
 
+# =====================================================
 # AUDIO SYSTEM
+# =====================================================
 
 func setup_audio():
 	coin_sound_player = AudioStreamPlayer.new()
@@ -198,19 +262,24 @@ func setup_audio():
 
 	music_player.stream = make_music()
 	music_player.volume_db = -15.0
-	music_player.play()
+
+	if music_enabled:
+		music_player.play()
 
 
 func make_tone(duration: float, start_frequency: float, end_frequency: float, volume: float) -> AudioStreamWAV:
 	var sample_rate = 22050
 	var sample_count = int(duration * sample_rate)
+
 	var audio_data = PackedByteArray()
 	audio_data.resize(sample_count * 2)
+
 	var phase = 0.0
 
 	for i in range(sample_count):
 		var progress = float(i) / sample_count
 		var frequency = lerpf(start_frequency, end_frequency, progress)
+
 		phase += TAU * frequency / sample_rate
 
 		var envelope = 1.0 - progress
@@ -224,6 +293,7 @@ func make_tone(duration: float, start_frequency: float, end_frequency: float, vo
 	sound.mix_rate = sample_rate
 	sound.stereo = false
 	sound.data = audio_data
+
 	return sound
 
 
@@ -240,23 +310,28 @@ func make_music() -> AudioStreamWAV:
 
 	var samples_per_note = int(note_duration * sample_rate)
 	var total_samples = samples_per_note * notes.size()
+
 	var audio_data = PackedByteArray()
 	audio_data.resize(total_samples * 2)
+
 	var phase = 0.0
 
 	for i in range(total_samples):
 		var note_index = int(i / samples_per_note)
 		var local_sample = i % samples_per_note
+
 		var frequency = notes[note_index]
 
 		phase += TAU * frequency / sample_rate
 
 		var progress = float(local_sample) / samples_per_note
+
 		var envelope = minf(progress * 15.0, 1.0)
 		envelope *= minf((1.0 - progress) * 8.0, 1.0)
 
 		var main_tone = sin(phase)
 		var soft_harmony = sin(phase * 2.0) * 0.20
+
 		var sample = (main_tone + soft_harmony) * 0.12 * envelope
 
 		audio_data.encode_s16(i * 2, int(sample * 32767.0))
@@ -266,6 +341,7 @@ func make_music() -> AudioStreamWAV:
 	music.mix_rate = sample_rate
 	music.stereo = false
 	music.data = audio_data
+
 	music.loop_mode = AudioStreamWAV.LOOP_FORWARD
 	music.loop_begin = 0
 	music.loop_end = total_samples
@@ -293,10 +369,13 @@ func toggle_music():
 		music_player.stop()
 
 
+# =====================================================
 # SAVING SYSTEM
+# =====================================================
 
 func save_best_score():
 	var file = FileAccess.open("user://coin_save.cfg", FileAccess.WRITE)
+
 	if file:
 		file.store_32(best_score)
 
@@ -304,6 +383,7 @@ func save_best_score():
 func load_best_score():
 	if FileAccess.file_exists("user://coin_save.cfg"):
 		var file = FileAccess.open("user://coin_save.cfg", FileAccess.READ)
+
 		if file:
 			best_score = file.get_32()
 
@@ -329,7 +409,27 @@ func load_shop_data():
 			inventory[item] = config.get_value("inventory", item, 0)
 
 
+func save_maze_data():
+	var config = ConfigFile.new()
+
+	config.set_value("maze", "unlocked_level", unlocked_maze_level)
+	config.save("user://maze_save.cfg")
+
+
+func load_maze_data():
+	var config = ConfigFile.new()
+
+	if config.load("user://maze_save.cfg") == OK:
+		unlocked_maze_level = int(
+			config.get_value("maze", "unlocked_level", 1)
+		)
+
+	unlocked_maze_level = clampi(unlocked_maze_level, 1, 99)
+
+
+# =====================================================
 # SHOP SYSTEM
+# =====================================================
 
 func buy_item(item: String):
 	var price = item_prices[item]
@@ -367,11 +467,14 @@ func activate_item(item: String):
 		lives += 1
 
 	inventory[item] -= 1
+
 	save_shop_data()
 	play_button_sound()
 
 
-# GAME SETUP
+# =====================================================
+# CLASSIC MODE SETUP
+# =====================================================
 
 func start_game():
 	score = 0
@@ -384,13 +487,10 @@ func start_game():
 	particles.clear()
 	floating_texts.clear()
 
-	player_position = screen_size / 2
+	player_position = screen_size / 2.0
 	is_moving = false
 
-	joystick_active = false
-	joystick_vector = Vector2.ZERO
-	joystick_touch_index = -1
-	joystick_mouse_active = false
+	stop_joystick()
 
 	rock_spawn_timer = 1.5
 	rock_spawn_interval = 4.0
@@ -417,7 +517,9 @@ func spawn_coin():
 	coins.append(coin)
 
 
+# =====================================================
 # FALLING ROCK SYSTEM
+# =====================================================
 
 func spawn_rock():
 	var target_position = Vector2(
@@ -440,6 +542,7 @@ func update_rocks(delta):
 
 	if rock_spawn_timer <= 0:
 		spawn_rock()
+
 		rock_spawn_interval = maxf(2.0, 4.0 - score * 0.035)
 		rock_spawn_timer = rock_spawn_interval
 
@@ -479,8 +582,8 @@ func damage_player():
 
 	lives -= 1
 	invulnerability_timer = 1.5
-	joystick_active = false
-	joystick_vector = Vector2.ZERO
+
+	stop_joystick()
 
 	if lives <= 0:
 		change_state("game_over")
@@ -490,6 +593,7 @@ func create_rock_impact(pos: Vector2):
 	for i in range(20):
 		var angle = randf_range(0.0, TAU)
 		var speed = randf_range(100.0, 320.0)
+
 		var velocity = Vector2(cos(angle), sin(angle)) * speed
 
 		var colors = [
@@ -509,12 +613,15 @@ func create_rock_impact(pos: Vector2):
 		})
 
 
+# =====================================================
 # COLLECTION EFFECTS
+# =====================================================
 
 func create_collection_effect(pos: Vector2):
 	for i in range(16):
 		var angle = randf_range(0.0, TAU)
 		var speed = randf_range(80.0, 230.0)
+
 		var velocity = Vector2(cos(angle), sin(angle)) * speed
 
 		var colors = [
@@ -557,17 +664,21 @@ func update_effects(delta):
 			floating_texts.remove_at(i)
 
 
+# =====================================================
 # COIN COLLECTION
+# =====================================================
 
 func collect_coin(index: int):
 	var collected_position = coins[index]
 
 	coins.remove_at(index)
+
 	create_collection_effect(collected_position)
 	play_coin_sound()
 
 	score += 1
 	wallet_coins += 1
+
 	hud_pulse_timer = 0.18
 
 	if score > best_score:
@@ -582,13 +693,229 @@ func update_coins(delta):
 	for i in range(coins.size() - 1, -1, -1):
 		if magnet_timer > 0:
 			if player_position.distance_to(coins[i]) < 220:
-				coins[i] = coins[i].move_toward(player_position, 550.0 * delta)
+				coins[i] = coins[i].move_toward(
+					player_position,
+					550.0 * delta
+				)
 
 		if player_position.distance_to(coins[i]) < 50:
 			collect_coin(i)
 
 
+# =====================================================
+# MAZE MODE: LEVEL DIFFICULTY
+# =====================================================
+
+func get_maze_difficulty() -> String:
+	if maze_level <= 20:
+		return "EASY"
+	elif maze_level <= 40:
+		return "MODERATE"
+	elif maze_level <= 60:
+		return "HARD"
+	else:
+		return "HARDER"
+
+
+func start_maze():
+	maze_level = unlocked_maze_level
+
+	generate_maze()
+
+	maze_player_cell = Vector2i(1, 1)
+	maze_player_position = maze_cell_center(maze_player_cell)
+
+	maze_move_cooldown = 0.0
+	maze_reward = 10 + maze_level * 2
+
+	particles.clear()
+	floating_texts.clear()
+
+	stop_joystick()
+
+	change_state("maze_playing")
+
+
+# =====================================================
+# MAZE GENERATION
+# =====================================================
+
+func generate_maze():
+	if maze_level <= 20:
+		maze_cols = 9
+		maze_rows = 13
+
+	elif maze_level <= 40:
+		maze_cols = 11
+		maze_rows = 15
+
+	elif maze_level <= 60:
+		maze_cols = 13
+		maze_rows = 17
+
+	else:
+		maze_cols = 15
+		maze_rows = 19
+
+	maze_grid.clear()
+
+	for y in range(maze_rows):
+		var row: Array = []
+
+		for x in range(maze_cols):
+			row.append(1)
+
+		maze_grid.append(row)
+
+	var start = Vector2i(1, 1)
+
+	maze_grid[1][1] = 0
+
+	var stack: Array[Vector2i] = [start]
+
+	while not stack.is_empty():
+		var current = stack.back()
+		var neighbors: Array[Vector2i] = []
+
+		var directions = [
+			Vector2i(0, -2),
+			Vector2i(0, 2),
+			Vector2i(-2, 0),
+			Vector2i(2, 0)
+		]
+
+		for direction in directions:
+			var next = current + direction
+
+			if next.x > 0 and next.x < maze_cols - 1:
+				if next.y > 0 and next.y < maze_rows - 1:
+					if maze_grid[next.y][next.x] == 1:
+						neighbors.append(next)
+
+		if neighbors.is_empty():
+			stack.pop_back()
+
+		else:
+			var next = neighbors[randi() % neighbors.size()]
+			var middle = Vector2i(
+				int((current.x + next.x) / 2),
+				int((current.y + next.y) / 2)
+			)
+
+			maze_grid[middle.y][middle.x] = 0
+			maze_grid[next.y][next.x] = 0
+
+			stack.append(next)
+
+	maze_exit_cell = Vector2i(
+		maze_cols - 2,
+		maze_rows - 2
+	)
+
+	maze_grid[maze_exit_cell.y][maze_exit_cell.x] = 0
+
+	maze_cell_size = minf(
+		(screen_size.x - 40.0) / maze_cols,
+		(screen_size.y - 370.0) / maze_rows
+	)
+
+	var maze_width = maze_cols * maze_cell_size
+	var maze_height = maze_rows * maze_cell_size
+
+	maze_origin = Vector2(
+		(screen_size.x - maze_width) / 2.0,
+		205 + (screen_size.y - 350.0 - maze_height) / 2.0
+	)
+
+
+func maze_cell_center(cell: Vector2i) -> Vector2:
+	return maze_origin + Vector2(
+		(cell.x + 0.5) * maze_cell_size,
+		(cell.y + 0.5) * maze_cell_size
+	)
+
+
+# =====================================================
+# MAZE MOVEMENT
+# =====================================================
+
+func move_maze_player(direction: Vector2i):
+	var next_cell = maze_player_cell + direction
+
+	if next_cell.x < 0 or next_cell.x >= maze_cols:
+		return
+
+	if next_cell.y < 0 or next_cell.y >= maze_rows:
+		return
+
+	if maze_grid[next_cell.y][next_cell.x] == 1:
+		return
+
+	maze_player_cell = next_cell
+	maze_player_position = maze_cell_center(maze_player_cell)
+
+	play_button_sound()
+
+	if maze_player_cell == maze_exit_cell:
+		complete_maze_level()
+
+
+func update_maze(delta):
+	maze_move_cooldown -= delta
+
+	if maze_move_cooldown > 0:
+		return
+
+	var direction = Vector2.ZERO
+
+	if joystick_active:
+		direction = joystick_vector
+	else:
+		direction = Input.get_vector(
+			"ui_left", "ui_right",
+			"ui_up", "ui_down"
+		)
+
+	if direction.length() < 0.5:
+		return
+
+	if absf(direction.x) > absf(direction.y):
+		move_maze_player(
+			Vector2i(1 if direction.x > 0 else -1, 0)
+		)
+	else:
+		move_maze_player(
+			Vector2i(0, 1 if direction.y > 0 else -1)
+		)
+
+	maze_move_cooldown = 0.14
+
+
+# =====================================================
+# MAZE LEVEL COMPLETION
+# =====================================================
+
+func complete_maze_level():
+	wallet_coins += maze_reward
+
+	save_shop_data()
+
+	if maze_level < 99:
+		unlocked_maze_level = max(
+			unlocked_maze_level,
+			maze_level + 1
+		)
+
+	save_maze_data()
+
+	stop_joystick()
+
+	change_state("maze_complete")
+
+
+# =====================================================
 # JOYSTICK SYSTEM
+# =====================================================
 
 func is_joystick_area(pos: Vector2) -> bool:
 	return pos.distance_to(joystick_center) <= joystick_radius + 35
@@ -652,19 +979,25 @@ func draw_joystick():
 	)
 
 
-# MODERN HUD
+# =====================================================
+# HUD
+# =====================================================
 
 func draw_hud_panel(rect: Rect2, panel_color: Color):
 	var style = StyleBoxFlat.new()
+
 	style.bg_color = panel_color
+
 	style.corner_radius_top_left = 18
 	style.corner_radius_top_right = 18
 	style.corner_radius_bottom_left = 18
 	style.corner_radius_bottom_right = 18
+
 	style.border_width_left = 2
 	style.border_width_right = 2
 	style.border_width_top = 2
 	style.border_width_bottom = 2
+
 	style.border_color = Color(1, 1, 1, 0.45)
 
 	draw_style_box(style, rect)
@@ -762,7 +1095,9 @@ func draw_hud():
 		)
 
 
+# =====================================================
 # GAME LOOP
+# =====================================================
 
 func _process(delta):
 	animation_time += delta
@@ -780,6 +1115,11 @@ func _process(delta):
 	)
 
 	hud_pulse_timer = maxf(0.0, hud_pulse_timer - delta)
+
+	if state == "maze_playing":
+		update_maze(delta)
+		queue_redraw()
+		return
 
 	if state != "playing":
 		queue_redraw()
@@ -818,25 +1158,37 @@ func _process(delta):
 
 	player_position += direction * current_speed * delta
 
-	player_position.x = clampf(player_position.x, 40, screen_size.x - 40)
-	player_position.y = clampf(player_position.y, 140, screen_size.y - 45)
+	player_position.x = clampf(
+		player_position.x,
+		40,
+		screen_size.x - 40
+	)
+
+	player_position.y = clampf(
+		player_position.y,
+		140,
+		screen_size.y - 45
+	)
 
 	update_coins(delta)
 
 	queue_redraw()
 
 
+# =====================================================
 # INPUT
+# =====================================================
 
 func _input(event):
 	if event is InputEventScreenTouch:
 		if event.pressed:
-			if state == "playing" and is_joystick_area(event.position):
+			if (state == "playing" or state == "maze_playing") and is_joystick_area(event.position):
 				joystick_active = true
 				joystick_touch_index = event.index
 				update_joystick(event.position)
 			else:
 				handle_press(event.position)
+
 		else:
 			if joystick_active and event.index == joystick_touch_index:
 				stop_joystick()
@@ -851,12 +1203,13 @@ func _input(event):
 
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
-				if state == "playing" and is_joystick_area(event.position):
+				if (state == "playing" or state == "maze_playing") and is_joystick_area(event.position):
 					joystick_active = true
 					joystick_mouse_active = true
 					update_joystick(event.position)
 				else:
 					handle_press(event.position)
+
 			else:
 				if joystick_mouse_active:
 					stop_joystick()
@@ -869,7 +1222,11 @@ func _input(event):
 			update_joystick(event.position)
 
 
-func handle_press(pos):
+# =====================================================
+# BUTTON ACTIONS
+# =====================================================
+
+func handle_press(pos: Vector2):
 	if state == "menu":
 		if music_button.has_point(pos):
 			play_button_sound()
@@ -894,16 +1251,31 @@ func handle_press(pos):
 		elif maze_mode_button.has_point(pos):
 			play_button_sound()
 			animate_button_press()
-			change_state("maze_coming_soon")
+			change_state("maze_menu")
 
 		elif mode_back_button.has_point(pos):
 			play_button_sound()
 			change_state("menu")
 
-	elif state == "maze_coming_soon":
-		if mode_back_button.has_point(pos):
+	elif state == "maze_menu":
+		if maze_play_button.has_point(pos):
+			play_button_sound()
+			animate_button_press()
+			start_maze()
+
+		elif maze_back_button.has_point(pos):
 			play_button_sound()
 			change_state("mode_select")
+
+	elif state == "maze_complete":
+		if maze_level < 99 and maze_next_button.has_point(pos):
+			play_button_sound()
+			animate_button_press()
+			start_maze()
+
+		elif maze_select_button.has_point(pos):
+			play_button_sound()
+			change_state("maze_menu")
 
 	elif state == "shop":
 		if shop_back_button.has_point(pos):
@@ -967,7 +1339,9 @@ func handle_press(pos):
 			change_state("menu")
 
 
+# =====================================================
 # CHARACTER
+# =====================================================
 
 func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
 	var swing = 0.0
@@ -1039,7 +1413,9 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
+# =====================================================
 # ROCK DRAWING
+# =====================================================
 
 func draw_rocks():
 	for rock in rocks:
@@ -1077,12 +1453,15 @@ func draw_rocks():
 			draw_arc(pos, size, 0, TAU, 32, Color("#444444"), 3)
 
 
+# =====================================================
 # EFFECT DRAWING
+# =====================================================
 
 func draw_collection_effects():
 	for particle in particles:
 		var life_ratio = particle["life"] / particle["max_life"]
 		var color: Color = particle["color"]
+
 		color.a = life_ratio
 
 		draw_circle(
@@ -1094,6 +1473,7 @@ func draw_collection_effects():
 	for floating in floating_texts:
 		var life_ratio = floating["life"] / floating["max_life"]
 		var color = Color("#fff36b")
+
 		color.a = life_ratio
 
 		draw_string(
@@ -1107,23 +1487,39 @@ func draw_collection_effects():
 		)
 
 
+# =====================================================
 # BUTTON DRAWING
+# =====================================================
 
 func draw_button(rect: Rect2, label: String, color: Color):
-	var center = rect.position + rect.size / 2
+	var center = rect.position + rect.size / 2.0
 	var scaled_size = rect.size * ui_button_scale
 
 	var scaled_rect = Rect2(
-		center - scaled_size / 2,
+		center - scaled_size / 2.0,
 		scaled_size
 	)
 
-	draw_rect(scaled_rect, color)
+	var style = StyleBoxFlat.new()
+	style.bg_color = color
+
+	style.corner_radius_top_left = 18
+	style.corner_radius_top_right = 18
+	style.corner_radius_bottom_left = 18
+	style.corner_radius_bottom_right = 18
+
+	style.border_width_bottom = 5
+	style.border_color = Color(0, 0, 0, 0.2)
+
+	draw_style_box(style, scaled_rect)
 	draw_rect(scaled_rect, Color.WHITE, false, 3)
 
 	draw_string(
 		ThemeDB.fallback_font,
-		Vector2(scaled_rect.position.x, scaled_rect.position.y + scaled_rect.size.y / 2 + 10),
+		Vector2(
+			scaled_rect.position.x,
+			scaled_rect.position.y + scaled_rect.size.y / 2.0 + 10
+		),
 		label,
 		HORIZONTAL_ALIGNMENT_CENTER,
 		scaled_rect.size.x,
@@ -1150,7 +1546,9 @@ func draw_music_button():
 	)
 
 
-# REDESIGNED SHOP
+# =====================================================
+# SHOP DRAWING
+# =====================================================
 
 func draw_shop_panel(rect: Rect2, panel_color: Color):
 	var style = StyleBoxFlat.new()
@@ -1165,13 +1563,13 @@ func draw_shop_panel(rect: Rect2, panel_color: Color):
 	style.border_width_right = 2
 	style.border_width_top = 2
 	style.border_width_bottom = 2
+
 	style.border_color = Color(1, 1, 1, 0.35)
 
 	draw_style_box(style, rect)
 
 
 func draw_shop_icon(item: String, center: Vector2):
-	var icon_color = Color.WHITE
 	var background_color = Color("#3498db")
 
 	if item == "magnet":
@@ -1187,43 +1585,9 @@ func draw_shop_icon(item: String, center: Vector2):
 	draw_circle(center, 38, background_color)
 
 	if item == "magnet":
-		draw_arc(
-			center + Vector2(0, -3),
-			22,
-			0,
-			PI,
-			32,
-			icon_color,
-			9
-		)
-
-		draw_line(
-			center + Vector2(-22, -3),
-			center + Vector2(-22, 16),
-			icon_color,
-			9
-		)
-
-		draw_line(
-			center + Vector2(22, -3),
-			center + Vector2(22, 16),
-			icon_color,
-			9
-		)
-
-		draw_line(
-			center + Vector2(-28, 17),
-			center + Vector2(-15, 17),
-			Color("#ffe66d"),
-			5
-		)
-
-		draw_line(
-			center + Vector2(15, 17),
-			center + Vector2(28, 17),
-			Color("#ffe66d"),
-			5
-		)
+		draw_arc(center + Vector2(0, -3), 22, 0, PI, 32, Color.WHITE, 9)
+		draw_line(center + Vector2(-22, -3), center + Vector2(-22, 16), Color.WHITE, 9)
+		draw_line(center + Vector2(22, -3), center + Vector2(22, 16), Color.WHITE, 9)
 
 	elif item == "shield":
 		var shield = PackedVector2Array([
@@ -1236,20 +1600,6 @@ func draw_shop_icon(item: String, center: Vector2):
 		])
 
 		draw_colored_polygon(shield, Color.WHITE)
-
-		draw_line(
-			center + Vector2(-11, 0),
-			center + Vector2(-2, 10),
-			Color("#2980b9"),
-			5
-		)
-
-		draw_line(
-			center + Vector2(-2, 10),
-			center + Vector2(13, -9),
-			Color("#2980b9"),
-			5
-		)
 
 	elif item == "speed":
 		var lightning = PackedVector2Array([
@@ -1280,6 +1630,7 @@ func draw_shop_buy_button(rect: Rect2, price: int, can_afford: bool):
 
 	var style = StyleBoxFlat.new()
 	style.bg_color = button_color
+
 	style.corner_radius_top_left = 17
 	style.corner_radius_top_right = 17
 	style.corner_radius_bottom_left = 17
@@ -1290,13 +1641,10 @@ func draw_shop_buy_button(rect: Rect2, price: int, can_afford: bool):
 
 	draw_style_box(style, rect)
 
-	var label = "BUY"
-	var price_text = str(price) + " COINS"
-
 	draw_string(
 		ThemeDB.fallback_font,
 		Vector2(rect.position.x, rect.position.y + 27),
-		label,
+		"BUY",
 		HORIZONTAL_ALIGNMENT_CENTER,
 		rect.size.x,
 		22,
@@ -1306,7 +1654,7 @@ func draw_shop_buy_button(rect: Rect2, price: int, can_afford: bool):
 	draw_string(
 		ThemeDB.fallback_font,
 		Vector2(rect.position.x, rect.position.y + 49),
-		price_text,
+		str(price) + " COINS",
 		HORIZONTAL_ALIGNMENT_CENTER,
 		rect.size.x,
 		15,
@@ -1337,22 +1685,10 @@ func draw_shop():
 
 	var wallet_panel = Rect2(170, 145, 380, 58)
 
-	draw_shop_panel(
-		wallet_panel,
-		Color("#173f47")
-	)
+	draw_shop_panel(wallet_panel, Color("#173f47"))
 
-	draw_circle(
-		Vector2(215, 174),
-		15,
-		Color("#d99b00")
-	)
-
-	draw_circle(
-		Vector2(215, 174),
-		11,
-		Color("#ffe66d")
-	)
+	draw_circle(Vector2(215, 174), 15, Color("#d99b00"))
+	draw_circle(Vector2(215, 174), 11, Color("#ffe66d"))
 
 	draw_string(
 		ThemeDB.fallback_font,
@@ -1382,10 +1718,7 @@ func draw_shop():
 
 		draw_shop_panel(card, card_color)
 
-		draw_shop_icon(
-			item,
-			Vector2(82, card_y + 83)
-		)
+		draw_shop_icon(item, Vector2(82, card_y + 83))
 
 		draw_string(
 			ThemeDB.fallback_font,
@@ -1417,63 +1750,24 @@ func draw_shop():
 			Color("#aaffc3")
 		)
 
-		var price = item_prices[item]
-		var can_afford = wallet_coins >= price
-
 		draw_shop_buy_button(
 			item_buy_buttons[item],
-			price,
-			can_afford
+			item_prices[item],
+			wallet_coins >= item_prices[item]
 		)
 
-	draw_button(
-		shop_back_button,
-		"BACK",
-		Color("#c0392b")
-	)
+	draw_button(shop_back_button, "BACK", Color("#c0392b"))
 
 
-# GAMEPLAY ITEM ICONS
+# =====================================================
+# GAMEPLAY ITEM BUTTONS
+# =====================================================
 
 func draw_gameplay_item_icon(item: String, center: Vector2):
 	if item == "magnet":
-		draw_arc(
-			center + Vector2(0, -2),
-			17,
-			0,
-			PI,
-			32,
-			Color.WHITE,
-			7
-		)
-
-		draw_line(
-			center + Vector2(-17, -2),
-			center + Vector2(-17, 12),
-			Color.WHITE,
-			7
-		)
-
-		draw_line(
-			center + Vector2(17, -2),
-			center + Vector2(17, 12),
-			Color.WHITE,
-			7
-		)
-
-		draw_line(
-			center + Vector2(-22, 13),
-			center + Vector2(-11, 13),
-			Color("#ffe66d"),
-			5
-		)
-
-		draw_line(
-			center + Vector2(11, 13),
-			center + Vector2(22, 13),
-			Color("#ffe66d"),
-			5
-		)
+		draw_arc(center + Vector2(0, -2), 17, 0, PI, 32, Color.WHITE, 7)
+		draw_line(center + Vector2(-17, -2), center + Vector2(-17, 12), Color.WHITE, 7)
+		draw_line(center + Vector2(17, -2), center + Vector2(17, 12), Color.WHITE, 7)
 
 	elif item == "shield":
 		var shield = PackedVector2Array([
@@ -1486,20 +1780,6 @@ func draw_gameplay_item_icon(item: String, center: Vector2):
 		])
 
 		draw_colored_polygon(shield, Color.WHITE)
-
-		draw_line(
-			center + Vector2(-9, 0),
-			center + Vector2(-2, 8),
-			Color("#2980b9"),
-			4
-		)
-
-		draw_line(
-			center + Vector2(-2, 8),
-			center + Vector2(11, -8),
-			Color("#2980b9"),
-			4
-		)
 
 	elif item == "speed":
 		var lightning = PackedVector2Array([
@@ -1514,25 +1794,15 @@ func draw_gameplay_item_icon(item: String, center: Vector2):
 		draw_colored_polygon(lightning, Color.WHITE)
 
 	elif item == "life":
-		draw_circle(
-			center + Vector2(-8, -5),
-			10,
+		draw_string(
+			ThemeDB.fallback_font,
+			center + Vector2(-15, 14),
+			"♥",
+			HORIZONTAL_ALIGNMENT_LEFT,
+			-1,
+			38,
 			Color.WHITE
 		)
-
-		draw_circle(
-			center + Vector2(8, -5),
-			10,
-			Color.WHITE
-		)
-
-		var heart_bottom = PackedVector2Array([
-			center + Vector2(-17, -2),
-			center + Vector2(17, -2),
-			center + Vector2(0, 22)
-		])
-
-		draw_colored_polygon(heart_bottom, Color.WHITE)
 
 
 func draw_item_buttons():
@@ -1551,20 +1821,23 @@ func draw_item_buttons():
 
 		var style = StyleBoxFlat.new()
 		style.bg_color = button_color
+
 		style.corner_radius_top_left = 14
 		style.corner_radius_top_right = 14
 		style.corner_radius_bottom_left = 14
 		style.corner_radius_bottom_right = 14
+
 		style.border_width_left = 2
 		style.border_width_right = 2
 		style.border_width_top = 2
 		style.border_width_bottom = 2
+
 		style.border_color = Color(1, 1, 1, 0.75)
 
 		draw_style_box(style, rect)
 
 		var icon_center = Vector2(
-			rect.position.x + rect.size.x / 2,
+			rect.position.x + rect.size.x / 2.0,
 			rect.position.y + 23
 		)
 
@@ -1605,11 +1878,228 @@ func draw_item_buttons():
 		)
 
 
+# =====================================================
+# MAZE DRAWING
+# =====================================================
+
+func draw_maze():
+	draw_rect(
+		Rect2(Vector2.ZERO, screen_size),
+		Color("#183c48")
+	)
+
+	for y in range(maze_rows):
+		for x in range(maze_cols):
+			var cell_rect = Rect2(
+				maze_origin + Vector2(
+					x * maze_cell_size,
+					y * maze_cell_size
+				),
+				Vector2(maze_cell_size, maze_cell_size)
+			)
+
+			if maze_grid[y][x] == 1:
+				draw_rect(cell_rect, Color("#35566b"))
+				draw_rect(cell_rect, Color("#52778c"), false, 2)
+			else:
+				draw_rect(cell_rect, Color("#d6e9d0"))
+
+	# Exit gate
+	var exit_position = maze_cell_center(maze_exit_cell)
+
+	draw_circle(
+		exit_position,
+		maze_cell_size * 0.38,
+		Color("#20bf6b")
+	)
+
+	draw_circle(
+		exit_position,
+		maze_cell_size * 0.25,
+		Color("#aaffc3")
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		exit_position + Vector2(-8, 7),
+		"E",
+		HORIZONTAL_ALIGNMENT_LEFT,
+		-1,
+		18,
+		Color("#14532d")
+	)
+
+	# Player
+	draw_character(
+		maze_player_position,
+		false,
+		maze_cell_size / 85.0
+	)
+
+
+func draw_maze_hud():
+	draw_hud_panel(
+		Rect2(25, 25, screen_size.x - 50, 125),
+		Color(0.05, 0.15, 0.22, 0.92)
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(0, 65),
+		"MAZE LEVEL " + str(maze_level),
+		HORIZONTAL_ALIGNMENT_CENTER,
+		screen_size.x,
+		32,
+		Color("#ffe66d")
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(0, 105),
+		get_maze_difficulty(),
+		HORIZONTAL_ALIGNMENT_CENTER,
+		screen_size.x,
+		22,
+		Color.WHITE
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(0, 135),
+		"REWARD: " + str(maze_reward) + " COINS",
+		HORIZONTAL_ALIGNMENT_CENTER,
+		screen_size.x,
+		20,
+		Color("#aaffc3")
+	)
+
+
+func draw_maze_menu():
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(0, 240),
+		"MAZE ADVENTURE",
+		HORIZONTAL_ALIGNMENT_CENTER,
+		screen_size.x,
+		45,
+		Color("#ffe66d")
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(0, 340),
+		"99 LEVELS",
+		HORIZONTAL_ALIGNMENT_CENTER,
+		screen_size.x,
+		35,
+		Color.WHITE
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(0, 410),
+		"UNLOCKED LEVEL: " + str(unlocked_maze_level),
+		HORIZONTAL_ALIGNMENT_CENTER,
+		screen_size.x,
+		26,
+		Color("#aaffc3")
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(0, 470),
+		"DIFFICULTY: " + get_maze_difficulty(),
+		HORIZONTAL_ALIGNMENT_CENTER,
+		screen_size.x,
+		24,
+		Color.WHITE
+	)
+
+	draw_button(
+		maze_play_button,
+		"PLAY LEVEL " + str(unlocked_maze_level),
+		Color("#8e44ad")
+	)
+
+	draw_button(
+		maze_back_button,
+		"BACK",
+		Color("#c0392b")
+	)
+
+
+func draw_maze_complete():
+	draw_rect(
+		Rect2(Vector2.ZERO, screen_size),
+		Color(0, 0, 0, 0.78)
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(0, screen_size.y * 0.30),
+		"LEVEL COMPLETE!",
+		HORIZONTAL_ALIGNMENT_CENTER,
+		screen_size.x,
+		48,
+		Color("#ffe66d")
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(0, screen_size.y * 0.40),
+		"LEVEL " + str(maze_level),
+		HORIZONTAL_ALIGNMENT_CENTER,
+		screen_size.x,
+		32,
+		Color.WHITE
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(0, screen_size.y * 0.48),
+		"+" + str(maze_reward) + " COINS!",
+		HORIZONTAL_ALIGNMENT_CENTER,
+		screen_size.x,
+		35,
+		Color("#aaffc3")
+	)
+
+	if maze_level < 99:
+		draw_button(
+			maze_next_button,
+			"NEXT LEVEL",
+			Color("#27ae60")
+		)
+	else:
+		draw_string(
+			ThemeDB.fallback_font,
+			Vector2(0, screen_size.y * 0.58),
+			"YOU COMPLETED ALL 99 LEVELS!",
+			HORIZONTAL_ALIGNMENT_CENTER,
+			screen_size.x,
+			22,
+			Color("#ffe66d")
+		)
+
+	draw_button(
+		maze_select_button,
+		"LEVEL SELECT",
+		Color("#8e44ad")
+	)
+
+
+# =====================================================
 # BACKGROUND
+# =====================================================
 
 func draw_background():
 	draw_rect(Rect2(Vector2.ZERO, screen_size), Color("#78d7ff"))
-	draw_circle(Vector2(screen_size.x - 85, 120), 55, Color("#ffe66d"))
+
+	draw_circle(
+		Vector2(screen_size.x - 85, 120),
+		55,
+		Color("#ffe66d")
+	)
 
 	for cloud_pos in [
 		Vector2(100, 150),
@@ -1664,12 +2154,14 @@ func draw_background():
 		draw_circle(tree_pos + Vector2(-15, -25), 20, Color("#38a852"))
 
 
+# =====================================================
 # MAIN DRAWING
+# =====================================================
 
 func _draw():
 	draw_background()
 
-	var center = screen_size.x / 2
+	var center = screen_size.x / 2.0
 
 	if state == "menu":
 		draw_music_button()
@@ -1687,8 +2179,18 @@ func _draw():
 		draw_character(Vector2(center, screen_size.y * 0.37), false, 0.9)
 
 		var coin_bob = sin(animation_time * 3.0) * 5.0
-		draw_circle(Vector2(center - 65, screen_size.y * 0.37 + coin_bob), 18, Color("#f1c40f"))
-		draw_circle(Vector2(center + 65, screen_size.y * 0.37 - coin_bob), 18, Color("#f1c40f"))
+
+		draw_circle(
+			Vector2(center - 65, screen_size.y * 0.37 + coin_bob),
+			18,
+			Color("#f1c40f")
+		)
+
+		draw_circle(
+			Vector2(center + 65, screen_size.y * 0.37 - coin_bob),
+			18,
+			Color("#f1c40f")
+		)
 
 		draw_button(play_button, "PLAY", Color("#27ae60"))
 		draw_button(shop_button, "SHOP", Color("#d68910"))
@@ -1726,60 +2228,21 @@ func _draw():
 			Color("#ffe66d")
 		)
 
-		draw_button(
-			classic_mode_button,
-			"CLASSIC MODE",
-			Color("#27ae60")
-		)
+		draw_button(classic_mode_button, "CLASSIC MODE", Color("#27ae60"))
+		draw_button(maze_mode_button, "MAZE MODE", Color("#8e44ad"))
+		draw_button(mode_back_button, "BACK", Color("#c0392b"))
 
-		draw_button(
-			maze_mode_button,
-			"MAZE MODE",
-			Color("#8e44ad")
-		)
+	elif state == "maze_menu":
+		draw_maze_menu()
 
-		draw_button(
-			mode_back_button,
-			"BACK",
-			Color("#c0392b")
-		)
+	elif state == "maze_playing":
+		draw_maze()
+		draw_maze_hud()
+		draw_joystick()
 
-	elif state == "maze_coming_soon":
-		draw_string(
-			ThemeDB.fallback_font,
-			Vector2(0, screen_size.y * 0.30),
-			"MAZE MODE",
-			HORIZONTAL_ALIGNMENT_CENTER,
-			screen_size.x,
-			50,
-			Color("#ffe66d")
-		)
-
-		draw_string(
-			ThemeDB.fallback_font,
-			Vector2(0, screen_size.y * 0.42),
-			"99 LEVELS AWAIT!",
-			HORIZONTAL_ALIGNMENT_CENTER,
-			screen_size.x,
-			32,
-			Color.WHITE
-		)
-
-		draw_string(
-			ThemeDB.fallback_font,
-			Vector2(0, screen_size.y * 0.49),
-			"COMING SOON",
-			HORIZONTAL_ALIGNMENT_CENTER,
-			screen_size.x,
-			28,
-			Color("#aaffc3")
-		)
-
-		draw_button(
-			mode_back_button,
-			"BACK",
-			Color("#c0392b")
-		)
+	elif state == "maze_complete":
+		draw_maze()
+		draw_maze_complete()
 
 	elif state == "shop":
 		draw_shop()
@@ -1789,6 +2252,7 @@ func _draw():
 
 		for i in range(coins.size()):
 			var coin = coins[i]
+
 			var bob = sin(animation_time * 3.0 + i * 1.7) * 5.0
 			var squash = absf(cos(animation_time * 4.0 + i)) * 0.65 + 0.35
 
@@ -1812,6 +2276,7 @@ func _draw():
 
 		draw_music_button()
 		draw_button(pause_button, "II", Color("#2980b9"))
+
 		draw_item_buttons()
 		draw_joystick()
 
@@ -1834,6 +2299,7 @@ func _draw():
 			draw_button(resume_button, "RESUME", Color("#27ae60"))
 			draw_button(restart_button, "RESTART", Color("#2980b9"))
 			draw_button(home_button, "MAIN MENU", Color("#c0392b"))
+
 			draw_music_button()
 
 	elif state == "game_over":
@@ -1871,9 +2337,10 @@ func _draw():
 
 		draw_button(restart_button, "TRY AGAIN", Color("#27ae60"))
 		draw_button(home_button, "MAIN MENU", Color("#c0392b"))
+
 		draw_music_button()
 
-	# Fade in the current screen
+	# Fade transition
 	if transition_alpha < 1.0:
 		draw_rect(
 			Rect2(Vector2.ZERO, screen_size),
