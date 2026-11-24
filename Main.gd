@@ -154,12 +154,12 @@ func update_buttons():
 
 	for i in range(item_order.size()):
 		var item = item_order[i]
-		var card_y = 215 + i * 185
+		var card_y = 220 + i * 205
 
 		item_buy_buttons[item] = Rect2(
-			screen_size.x - 190,
-			card_y + 65,
-			165,
+			screen_size.x - 210,
+			card_y + 95,
+			175,
 			65
 		)
 
@@ -668,7 +668,6 @@ func draw_hud():
 	if hud_pulse_timer > 0:
 		pulse = 1.0 + sin(hud_pulse_timer * 30.0) * 0.04
 
-	# Score and wallet panel
 	draw_hud_panel(
 		score_panel,
 		Color(0.05, 0.20, 0.25, 0.88)
@@ -722,7 +721,6 @@ func draw_hud():
 		Color("#ffe66d")
 	)
 
-	# Lives panel
 	draw_hud_panel(
 		lives_panel,
 		Color(0.25, 0.08, 0.12, 0.88)
@@ -1121,76 +1119,296 @@ func draw_music_button():
 	)
 
 
-func draw_shop():
+# REDESIGNED SHOP
+
+func draw_shop_panel(rect: Rect2, panel_color: Color):
+	var style = StyleBoxFlat.new()
+	style.bg_color = panel_color
+
+	style.corner_radius_top_left = 22
+	style.corner_radius_top_right = 22
+	style.corner_radius_bottom_left = 22
+	style.corner_radius_bottom_right = 22
+
+	style.border_width_left = 2
+	style.border_width_right = 2
+	style.border_width_top = 2
+	style.border_width_bottom = 2
+	style.border_color = Color(1, 1, 1, 0.35)
+
+	draw_style_box(style, rect)
+
+
+func draw_shop_icon(item: String, center: Vector2):
+	var icon_color = Color.WHITE
+	var background_color = Color("#3498db")
+
+	if item == "magnet":
+		background_color = Color("#e74c3c")
+	elif item == "shield":
+		background_color = Color("#2980b9")
+	elif item == "speed":
+		background_color = Color("#f39c12")
+	elif item == "life":
+		background_color = Color("#e84393")
+
+	draw_circle(center, 43, Color(0, 0, 0, 0.18))
+	draw_circle(center, 38, background_color)
+
+	if item == "magnet":
+		draw_arc(
+			center + Vector2(0, -3),
+			22,
+			0,
+			PI,
+			32,
+			icon_color,
+			9
+		)
+
+		draw_line(
+			center + Vector2(-22, -3),
+			center + Vector2(-22, 16),
+			icon_color,
+			9
+		)
+
+		draw_line(
+			center + Vector2(22, -3),
+			center + Vector2(22, 16),
+			icon_color,
+			9
+		)
+
+		draw_line(
+			center + Vector2(-28, 17),
+			center + Vector2(-15, 17),
+			Color("#ffe66d"),
+			5
+		)
+
+		draw_line(
+			center + Vector2(15, 17),
+			center + Vector2(28, 17),
+			Color("#ffe66d"),
+			5
+		)
+
+	elif item == "shield":
+		var shield = PackedVector2Array([
+			center + Vector2(0, -27),
+			center + Vector2(23, -17),
+			center + Vector2(19, 12),
+			center + Vector2(0, 28),
+			center + Vector2(-19, 12),
+			center + Vector2(-23, -17)
+		])
+
+		draw_colored_polygon(shield, Color.WHITE)
+
+		draw_line(
+			center + Vector2(-11, 0),
+			center + Vector2(-2, 10),
+			Color("#2980b9"),
+			5
+		)
+
+		draw_line(
+			center + Vector2(-2, 10),
+			center + Vector2(13, -9),
+			Color("#2980b9"),
+			5
+		)
+
+	elif item == "speed":
+		var lightning = PackedVector2Array([
+			center + Vector2(5, -29),
+			center + Vector2(-18, 4),
+			center + Vector2(-3, 4),
+			center + Vector2(-9, 29),
+			center + Vector2(19, -7),
+			center + Vector2(4, -7)
+		])
+
+		draw_colored_polygon(lightning, Color.WHITE)
+
+	elif item == "life":
+		draw_string(
+			ThemeDB.fallback_font,
+			center + Vector2(-18, 13),
+			"♥",
+			HORIZONTAL_ALIGNMENT_LEFT,
+			-1,
+			48,
+			Color.WHITE
+		)
+
+
+func draw_shop_buy_button(rect: Rect2, price: int, can_afford: bool):
+	var button_color = Color("#20bf6b") if can_afford else Color("#59636e")
+
+	var style = StyleBoxFlat.new()
+	style.bg_color = button_color
+	style.corner_radius_top_left = 17
+	style.corner_radius_top_right = 17
+	style.corner_radius_bottom_left = 17
+	style.corner_radius_bottom_right = 17
+
+	style.border_width_bottom = 4
+	style.border_color = Color(0, 0, 0, 0.2)
+
+	draw_style_box(style, rect)
+
+	var label = "BUY"
+	var price_text = str(price) + " COINS"
+
 	draw_string(
 		ThemeDB.fallback_font,
-		Vector2(0, 100),
+		Vector2(rect.position.x, rect.position.y + 27),
+		label,
+		HORIZONTAL_ALIGNMENT_CENTER,
+		rect.size.x,
+		22,
+		Color.WHITE
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(rect.position.x, rect.position.y + 49),
+		price_text,
+		HORIZONTAL_ALIGNMENT_CENTER,
+		rect.size.x,
+		15,
+		Color.WHITE
+	)
+
+
+func draw_shop():
+	# Shop title
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(0, 92),
 		"ITEM SHOP",
 		HORIZONTAL_ALIGNMENT_CENTER,
 		screen_size.x,
 		48,
-		Color("#f1c40f")
+		Color("#ffe66d")
 	)
 
 	draw_string(
 		ThemeDB.fallback_font,
-		Vector2(0, 155),
-		"YOUR COINS: " + str(wallet_coins),
+		Vector2(0, 130),
+		"UPGRADE YOUR GAME!",
 		HORIZONTAL_ALIGNMENT_CENTER,
 		screen_size.x,
-		30,
+		18,
+		Color("#eaffff")
+	)
+
+	# Wallet display
+	var wallet_panel = Rect2(170, 145, 380, 58)
+
+	draw_shop_panel(
+		wallet_panel,
+		Color("#173f47")
+	)
+
+	draw_circle(
+		Vector2(215, 174),
+		15,
+		Color("#d99b00")
+	)
+
+	draw_circle(
+		Vector2(215, 174),
+		11,
+		Color("#ffe66d")
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(245, 184),
+		"YOUR COINS: " + str(wallet_coins),
+		HORIZONTAL_ALIGNMENT_LEFT,
+		280,
+		25,
 		Color.WHITE
 	)
 
+	# Item cards
 	for i in range(item_order.size()):
 		var item = item_order[i]
-		var card_y = 215 + i * 185
-		var card = Rect2(20, card_y, screen_size.x - 40, 155)
+		var card_y = 220 + i * 205
 
-		draw_rect(card, Color("#286b48"))
-		draw_rect(card, Color.WHITE, false, 3)
+		var card = Rect2(
+			25,
+			card_y,
+			screen_size.x - 50,
+			175
+		)
 
+		var card_color = Color("#245d65")
+
+		if i % 2 == 1:
+			card_color = Color("#28546b")
+
+		draw_shop_panel(card, card_color)
+
+		# Item icon
+		draw_shop_icon(
+			item,
+			Vector2(82, card_y + 83)
+		)
+
+		# Item name
 		draw_string(
 			ThemeDB.fallback_font,
-			Vector2(40, card_y + 42),
+			Vector2(140, card_y + 45),
 			item_names[item],
 			HORIZONTAL_ALIGNMENT_LEFT,
-			300,
+			340,
 			25,
 			Color("#ffe66d")
 		)
 
+		# Item description
 		draw_string(
 			ThemeDB.fallback_font,
-			Vector2(40, card_y + 78),
+			Vector2(140, card_y + 78),
 			item_descriptions[item],
 			HORIZONTAL_ALIGNMENT_LEFT,
-			300,
+			340,
 			17,
 			Color.WHITE
 		)
 
+		# Owned count
 		draw_string(
 			ThemeDB.fallback_font,
-			Vector2(40, card_y + 120),
+			Vector2(140, card_y + 126),
 			"OWNED: " + str(inventory[item]),
 			HORIZONTAL_ALIGNMENT_LEFT,
 			300,
-			22,
-			Color("#aaffaa")
+			21,
+			Color("#aaffc3")
 		)
 
+		# Buy button
 		var price = item_prices[item]
 		var can_afford = wallet_coins >= price
-		var button_color = Color("#27ae60") if can_afford else Color("#777777")
 
-		draw_button(
+		draw_shop_buy_button(
 			item_buy_buttons[item],
-			str(price) + " COINS",
-			button_color
+			price,
+			can_afford
 		)
 
-	draw_button(shop_back_button, "BACK", Color("#c0392b"))
+	# Back button
+	draw_button(
+		shop_back_button,
+		"BACK",
+		Color("#c0392b")
+	)
 
 
 func draw_item_buttons():
@@ -1386,8 +1604,6 @@ func _draw():
 			draw_character(player_position, is_moving, 1.0)
 
 		draw_collection_effects()
-
-		# New modern HUD
 		draw_hud()
 
 		draw_music_button()
