@@ -9,10 +9,11 @@ var coins: Array[Vector2] = []
 var score = 0
 var best_score = 0
 var lives = 3
+var max_lives = 5
+var wallet_coins = 0
 
 var state = "menu"
 var touch_target: Variant = null
-
 var animation_time = 0.0
 var is_moving = false
 
@@ -25,7 +26,46 @@ var rock_spawn_timer = 1.5
 var rock_spawn_interval = 2.8
 var invulnerability_timer = 0.0
 
+# Shop inventory
+var inventory = {
+	"magnet": 0,
+	"shield": 0,
+	"speed": 0,
+	"life": 0
+}
+
+var item_names = {
+	"magnet": "COIN MAGNET",
+	"shield": "SHIELD",
+	"speed": "SPEED BOOST",
+	"life": "EXTRA LIFE"
+}
+
+var item_descriptions = {
+	"magnet": "Attracts nearby coins for 8 seconds.",
+	"shield": "Blocks one falling rock hit.",
+	"speed": "Move faster for 8 seconds.",
+	"life": "Adds one extra life during a run."
+}
+
+var item_prices = {
+	"magnet": 100,
+	"shield": 150,
+	"speed": 200,
+	"life": 250
+}
+
+var item_order = ["magnet", "shield", "speed", "life"]
+var item_buy_buttons = {}
+var item_use_buttons = {}
+
+var magnet_timer = 0.0
+var speed_timer = 0.0
+var shield_active = false
+
 var play_button = Rect2()
+var shop_button = Rect2()
+var shop_back_button = Rect2()
 var pause_button = Rect2()
 var resume_button = Rect2()
 var restart_button = Rect2()
@@ -43,6 +83,7 @@ func _ready():
 	randomize()
 	screen_size = get_viewport_rect().size
 	load_best_score()
+	load_shop_data()
 	update_buttons()
 	setup_audio()
 	queue_redraw()
@@ -51,13 +92,37 @@ func _ready():
 func update_buttons():
 	var center = screen_size.x / 2
 
-	play_button = Rect2(center - 140, screen_size.y * 0.53, 280, 85)
+	play_button = Rect2(center - 140, screen_size.y * 0.51, 280, 80)
+	shop_button = Rect2(center - 140, screen_size.y * 0.62, 280, 80)
+	shop_back_button = Rect2(center - 140, screen_size.y - 145, 280, 75)
+
 	pause_button = Rect2(screen_size.x - 105, 25, 80, 65)
 	music_button = Rect2(screen_size.x - 205, 25, 90, 65)
 
 	resume_button = Rect2(center - 140, screen_size.y * 0.38, 280, 75)
 	restart_button = Rect2(center - 140, screen_size.y * 0.51, 280, 75)
 	home_button = Rect2(center - 140, screen_size.y * 0.64, 280, 75)
+
+	item_buy_buttons.clear()
+	item_use_buttons.clear()
+
+	for i in range(item_order.size()):
+		var item = item_order[i]
+		var card_y = 215 + i * 185
+
+		item_buy_buttons[item] = Rect2(
+			screen_size.x - 190,
+			card_y + 65,
+			165,
+			65
+		)
+
+		item_use_buttons[item] = Rect2(
+			15 + i * 173,
+			screen_size.y - 115,
+			165,
+			75
+		)
 
 
 # AUDIO SYSTEM
@@ -82,16 +147,13 @@ func setup_audio():
 func make_tone(duration: float, start_frequency: float, end_frequency: float, volume: float) -> AudioStreamWAV:
 	var sample_rate = 22050
 	var sample_count = int(duration * sample_rate)
-
 	var audio_data = PackedByteArray()
 	audio_data.resize(sample_count * 2)
-
 	var phase = 0.0
 
 	for i in range(sample_count):
 		var progress = float(i) / sample_count
 		var frequency = lerpf(start_frequency, end_frequency, progress)
-
 		phase += TAU * frequency / sample_rate
 
 		var envelope = 1.0 - progress
@@ -105,7 +167,6 @@ func make_tone(duration: float, start_frequency: float, end_frequency: float, vo
 	sound.mix_rate = sample_rate
 	sound.stereo = false
 	sound.data = audio_data
-
 	return sound
 
 
@@ -122,27 +183,23 @@ func make_music() -> AudioStreamWAV:
 
 	var samples_per_note = int(note_duration * sample_rate)
 	var total_samples = samples_per_note * notes.size()
-
 	var audio_data = PackedByteArray()
 	audio_data.resize(total_samples * 2)
-
 	var phase = 0.0
 
 	for i in range(total_samples):
 		var note_index = int(i / samples_per_note)
 		var local_sample = i % samples_per_note
-
 		var frequency = notes[note_index]
+
 		phase += TAU * frequency / sample_rate
 
 		var progress = float(local_sample) / samples_per_note
-
 		var envelope = minf(progress * 15.0, 1.0)
 		envelope *= minf((1.0 - progress) * 8.0, 1.0)
 
 		var main_tone = sin(phase)
 		var soft_harmony = sin(phase * 2.0) * 0.20
-
 		var sample = (main_tone + soft_harmony) * 0.12 * envelope
 
 		audio_data.encode_s16(i * 2, int(sample * 32767.0))
@@ -179,6 +236,84 @@ func toggle_music():
 		music_player.stop()
 
 
+# SAVING SYSTEM
+
+func save_best_score():
+	var file = FileAccess.open("user://coin_save.cfg", FileAccess.WRITE)
+	if file:
+		file.store_32(best_score)
+
+
+func load_best_score():
+	if FileAccess.file_exists("user://coin_save.cfg"):
+		var file = FileAccess.open("user://coin_save.cfg", FileAccess.READ)
+		if file:
+			best_score = file.get_32()
+
+
+func save_shop_data():
+	var config = ConfigFile.new()
+
+	config.set_value("wallet", "coins", wallet_coins)
+
+	for item in item_order:
+		config.set_value("inventory", item, inventory[item])
+
+	config.save("user://coin_shop.cfg")
+
+
+func load_shop_data():
+	var config = ConfigFile.new()
+
+	if config.load("user://coin_shop.cfg") == OK:
+		wallet_coins = config.get_value("wallet", "coins", 0)
+
+		for item in item_order:
+			inventory[item] = config.get_value("inventory", item, 0)
+
+
+# SHOP SYSTEM
+
+func buy_item(item: String):
+	var price = item_prices[item]
+
+	if wallet_coins < price:
+		return
+
+	wallet_coins -= price
+	inventory[item] += 1
+
+	save_shop_data()
+	play_button_sound()
+
+
+func activate_item(item: String):
+	if state != "playing":
+		return
+
+	if inventory[item] <= 0:
+		return
+
+	if item == "magnet":
+		magnet_timer = 8.0
+
+	elif item == "shield":
+		shield_active = true
+
+	elif item == "speed":
+		speed_timer = 8.0
+
+	elif item == "life":
+		if lives >= max_lives:
+			return
+
+		lives += 1
+
+	inventory[item] -= 1
+	save_shop_data()
+	play_button_sound()
+
+
 # GAME SETUP
 
 func start_game():
@@ -198,23 +333,14 @@ func start_game():
 	rock_spawn_interval = 2.8
 	invulnerability_timer = 0.0
 
+	magnet_timer = 0.0
+	speed_timer = 0.0
+	shield_active = false
+
 	for i in range(10):
 		spawn_coin()
 
 	state = "playing"
-
-
-func save_best_score():
-	var file = FileAccess.open("user://coin_save.cfg", FileAccess.WRITE)
-	if file:
-		file.store_32(best_score)
-
-
-func load_best_score():
-	if FileAccess.file_exists("user://coin_save.cfg"):
-		var file = FileAccess.open("user://coin_save.cfg", FileAccess.READ)
-		if file:
-			best_score = file.get_32()
 
 
 func spawn_coin():
@@ -251,7 +377,6 @@ func update_rocks(delta):
 
 	if rock_spawn_timer <= 0:
 		spawn_rock()
-
 		rock_spawn_interval = maxf(0.9, 2.8 - score * 0.035)
 		rock_spawn_timer = rock_spawn_interval
 
@@ -283,26 +408,24 @@ func damage_player():
 	if invulnerability_timer > 0:
 		return
 
+	if shield_active:
+		shield_active = false
+		invulnerability_timer = 0.8
+		create_rock_impact(player_position)
+		return
+
 	lives -= 1
 	invulnerability_timer = 1.5
-
-	movement_velocity_placeholder()
+	touch_target = null
 
 	if lives <= 0:
 		state = "game_over"
-		touch_target = null
-
-
-func movement_velocity_placeholder():
-	# Small knockback from the impact.
-	touch_target = null
 
 
 func create_rock_impact(pos: Vector2):
 	for i in range(20):
 		var angle = randf_range(0.0, TAU)
 		var speed = randf_range(100.0, 320.0)
-
 		var velocity = Vector2(cos(angle), sin(angle)) * speed
 
 		var colors = [
@@ -328,7 +451,6 @@ func create_collection_effect(pos: Vector2):
 	for i in range(16):
 		var angle = randf_range(0.0, TAU)
 		var speed = randf_range(80.0, 230.0)
-
 		var velocity = Vector2(cos(angle), sin(angle)) * speed
 
 		var colors = [
@@ -371,6 +493,36 @@ func update_effects(delta):
 			floating_texts.remove_at(i)
 
 
+# COIN COLLECTION
+
+func collect_coin(index: int):
+	var collected_position = coins[index]
+
+	coins.remove_at(index)
+	create_collection_effect(collected_position)
+	play_coin_sound()
+
+	score += 1
+	wallet_coins += 1
+
+	if score > best_score:
+		best_score = score
+		save_best_score()
+
+	save_shop_data()
+	spawn_coin()
+
+
+func update_coins(delta):
+	for i in range(coins.size() - 1, -1, -1):
+		if magnet_timer > 0:
+			if player_position.distance_to(coins[i]) < 220:
+				coins[i] = coins[i].move_toward(player_position, 550.0 * delta)
+
+		if player_position.distance_to(coins[i]) < 50:
+			collect_coin(i)
+
+
 # GAME LOOP
 
 func _process(delta):
@@ -388,6 +540,12 @@ func _process(delta):
 	if invulnerability_timer > 0:
 		invulnerability_timer -= delta
 
+	if magnet_timer > 0:
+		magnet_timer -= delta
+
+	if speed_timer > 0:
+		speed_timer -= delta
+
 	var direction = Input.get_vector(
 		"ui_left", "ui_right",
 		"ui_up", "ui_down"
@@ -404,31 +562,22 @@ func _process(delta):
 	else:
 		animation_time += delta * 2.0
 
-	player_position += direction * player_speed * delta
+	var current_speed = player_speed
+
+	if speed_timer > 0:
+		current_speed *= 1.7
+
+	player_position += direction * current_speed * delta
 
 	player_position.x = clampf(player_position.x, 40, screen_size.x - 40)
 	player_position.y = clampf(player_position.y, 140, screen_size.y - 45)
 
-	for i in range(coins.size() - 1, -1, -1):
-		if player_position.distance_to(coins[i]) < 50:
-			var collected_position = coins[i]
-
-			coins.remove_at(i)
-			create_collection_effect(collected_position)
-			play_coin_sound()
-
-			score += 1
-
-			if score > best_score:
-				best_score = score
-				save_best_score()
-
-			spawn_coin()
+	update_coins(delta)
 
 	queue_redraw()
 
 
-# INPUT - TOUCHSCREEN FIX
+# INPUT
 
 func _input(event):
 	if event is InputEventScreenTouch:
@@ -470,6 +619,21 @@ func handle_press(pos):
 			play_button_sound()
 			start_game()
 
+		elif shop_button.has_point(pos):
+			play_button_sound()
+			state = "shop"
+
+	elif state == "shop":
+		if shop_back_button.has_point(pos):
+			play_button_sound()
+			state = "menu"
+			return
+
+		for item in item_order:
+			if item_buy_buttons[item].has_point(pos):
+				buy_item(item)
+				return
+
 	elif state == "playing":
 		if music_button.has_point(pos):
 			play_button_sound()
@@ -481,6 +645,11 @@ func handle_press(pos):
 			touch_target = null
 
 		else:
+			for item in item_order:
+				if item_use_buttons[item].has_point(pos):
+					activate_item(item)
+					return
+
 			touch_target = pos
 
 	elif state == "paused":
@@ -544,7 +713,6 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
 
 	draw_colored_polygon(body, Color("#e53935"))
 	draw_line(Vector2(0, -12), Vector2(0, 18), Color("#ff8a80"), 2)
-
 	draw_arc(Vector2(0, -9), 18, PI, TAU, 32, Color("#a92725"), 5)
 
 	draw_circle(Vector2(-18, -31), 6, Color("#ffd0aa"))
@@ -569,10 +737,8 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
 
 	draw_circle(Vector2(7, -32), 3.5, Color("#171717"))
 	draw_circle(Vector2(-6, -32), 3.5, Color("#171717"))
-
 	draw_circle(Vector2(8, -34), 1.2, Color.WHITE)
 	draw_circle(Vector2(-5, -34), 1.2, Color.WHITE)
-
 	draw_arc(Vector2(2, -23), 5, 0.2, PI - 0.2, 12, Color("#9b5142"), 1.5)
 
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -585,67 +751,27 @@ func draw_rocks():
 		var target: Vector2 = rock["target"]
 		var size: float = rock["size"]
 
-		# Warning shadow
 		if rock["phase"] == "warning":
 			var pulse = 1.0 + sin(Time.get_ticks_msec() * 0.015) * 0.08
 
-			draw_circle(
-				target,
-				size * 1.4 * pulse,
-				Color(0.9, 0.15, 0.1, 0.22)
-			)
-
-			draw_arc(
-				target,
-				size * 1.4 * pulse,
-				0,
-				TAU,
-				48,
-				Color("#ff4444"),
-				4
-			)
-
+			draw_circle(target, size * 1.4 * pulse, Color(0.9, 0.15, 0.1, 0.22))
+			draw_arc(target, size * 1.4 * pulse, 0, TAU, 48, Color("#ff4444"), 4)
 			draw_circle(target, 7, Color("#ff4444"))
 
-		# Falling rock
 		elif rock["phase"] == "falling":
 			var pos: Vector2 = rock["position"]
 
-			draw_circle(
-				pos,
-				size,
-				Color("#666666")
-			)
-
-			draw_circle(
-				pos + Vector2(-size * 0.25, -size * 0.25),
-				size * 0.48,
-				Color("#999999")
-			)
-
-			draw_circle(
-				pos + Vector2(size * 0.3, size * 0.2),
-				size * 0.25,
-				Color("#4c4c4c")
-			)
-
-			draw_arc(
-				pos,
-				size,
-				0,
-				TAU,
-				32,
-				Color("#444444"),
-				3
-			)
+			draw_circle(pos, size, Color("#666666"))
+			draw_circle(pos + Vector2(-size * 0.25, -size * 0.25), size * 0.48, Color("#999999"))
+			draw_circle(pos + Vector2(size * 0.3, size * 0.2), size * 0.25, Color("#4c4c4c"))
+			draw_arc(pos, size, 0, TAU, 32, Color("#444444"), 3)
 
 
-# COLLECTION EFFECT DRAWING
+# EFFECT DRAWING
 
 func draw_collection_effects():
 	for particle in particles:
 		var life_ratio = particle["life"] / particle["max_life"]
-
 		var color: Color = particle["color"]
 		color.a = life_ratio
 
@@ -657,7 +783,6 @@ func draw_collection_effects():
 
 	for floating in floating_texts:
 		var life_ratio = floating["life"] / floating["max_life"]
-
 		var color = Color("#fff36b")
 		color.a = life_ratio
 
@@ -707,11 +832,129 @@ func draw_music_button():
 	)
 
 
+func draw_shop():
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(0, 100),
+		"ITEM SHOP",
+		HORIZONTAL_ALIGNMENT_CENTER,
+		screen_size.x,
+		48,
+		Color("#f1c40f")
+	)
+
+	draw_string(
+		ThemeDB.fallback_font,
+		Vector2(0, 155),
+		"YOUR COINS: " + str(wallet_coins),
+		HORIZONTAL_ALIGNMENT_CENTER,
+		screen_size.x,
+		30,
+		Color.WHITE
+	)
+
+	for i in range(item_order.size()):
+		var item = item_order[i]
+		var card_y = 215 + i * 185
+		var card = Rect2(20, card_y, screen_size.x - 40, 155)
+
+		draw_rect(card, Color("#286b48"))
+		draw_rect(card, Color.WHITE, false, 3)
+
+		draw_string(
+			ThemeDB.fallback_font,
+			Vector2(40, card_y + 42),
+			item_names[item],
+			HORIZONTAL_ALIGNMENT_LEFT,
+			300,
+			25,
+			Color("#ffe66d")
+		)
+
+		draw_string(
+			ThemeDB.fallback_font,
+			Vector2(40, card_y + 78),
+			item_descriptions[item],
+			HORIZONTAL_ALIGNMENT_LEFT,
+			300,
+			17,
+			Color.WHITE
+		)
+
+		draw_string(
+			ThemeDB.fallback_font,
+			Vector2(40, card_y + 120),
+			"OWNED: " + str(inventory[item]),
+			HORIZONTAL_ALIGNMENT_LEFT,
+			300,
+			22,
+			Color("#aaffaa")
+		)
+
+		var price = item_prices[item]
+		var can_afford = wallet_coins >= price
+		var button_color = Color("#27ae60") if can_afford else Color("#777777")
+
+		draw_button(
+			item_buy_buttons[item],
+			str(price) + " COINS",
+			button_color
+		)
+
+	draw_button(shop_back_button, "BACK", Color("#c0392b"))
+
+
+func draw_item_buttons():
+	for item in item_order:
+		var rect = item_use_buttons[item]
+		var count = inventory[item]
+
+		var button_color = Color("#2980b9") if count > 0 else Color("#777777")
+
+		if item == "magnet" and magnet_timer > 0:
+			button_color = Color("#d4a017")
+		elif item == "speed" and speed_timer > 0:
+			button_color = Color("#d35400")
+		elif item == "shield" and shield_active:
+			button_color = Color("#16a085")
+
+		draw_rect(rect, button_color)
+		draw_rect(rect, Color.WHITE, false, 2)
+
+		var label = item_names[item]
+
+		if item == "magnet" and magnet_timer > 0:
+			label = "MAGNET " + str(int(ceil(magnet_timer))) + "s"
+		elif item == "speed" and speed_timer > 0:
+			label = "SPEED " + str(int(ceil(speed_timer))) + "s"
+		elif item == "shield" and shield_active:
+			label = "SHIELD ON"
+
+		draw_string(
+			ThemeDB.fallback_font,
+			Vector2(rect.position.x, rect.position.y + 30),
+			label,
+			HORIZONTAL_ALIGNMENT_CENTER,
+			rect.size.x,
+			17,
+			Color.WHITE
+		)
+
+		draw_string(
+			ThemeDB.fallback_font,
+			Vector2(rect.position.x, rect.position.y + 57),
+			"OWNED: " + str(count),
+			HORIZONTAL_ALIGNMENT_CENTER,
+			rect.size.x,
+			17,
+			Color.WHITE
+		)
+
+
 # BACKGROUND
 
 func draw_background():
 	draw_rect(Rect2(Vector2.ZERO, screen_size), Color("#78d7ff"))
-
 	draw_circle(Vector2(screen_size.x - 85, 120), 55, Color("#ffe66d"))
 
 	for cloud_pos in [
@@ -779,7 +1022,7 @@ func _draw():
 
 		draw_string(
 			ThemeDB.fallback_font,
-			Vector2(0, screen_size.y * 0.29),
+			Vector2(0, screen_size.y * 0.27),
 			"COIN COLLECTOR",
 			HORIZONTAL_ALIGNMENT_CENTER,
 			screen_size.x,
@@ -787,16 +1030,17 @@ func _draw():
 			Color("#f1c40f")
 		)
 
-		draw_character(Vector2(center, screen_size.y * 0.39), true, 0.9)
+		draw_character(Vector2(center, screen_size.y * 0.37), true, 0.9)
 
-		draw_circle(Vector2(center - 65, screen_size.y * 0.39), 18, Color("#f1c40f"))
-		draw_circle(Vector2(center + 65, screen_size.y * 0.39), 18, Color("#f1c40f"))
+		draw_circle(Vector2(center - 65, screen_size.y * 0.37), 18, Color("#f1c40f"))
+		draw_circle(Vector2(center + 65, screen_size.y * 0.37), 18, Color("#f1c40f"))
 
 		draw_button(play_button, "PLAY", Color("#27ae60"))
+		draw_button(shop_button, "SHOP", Color("#d68910"))
 
 		draw_string(
 			ThemeDB.fallback_font,
-			Vector2(0, screen_size.y * 0.70),
+			Vector2(0, screen_size.y * 0.77),
 			"BEST SCORE: " + str(best_score),
 			HORIZONTAL_ALIGNMENT_CENTER,
 			screen_size.x,
@@ -806,13 +1050,16 @@ func _draw():
 
 		draw_string(
 			ThemeDB.fallback_font,
-			Vector2(0, screen_size.y * 0.76),
-			"Collect coins and beat your record!",
+			Vector2(0, screen_size.y * 0.82),
+			"WALLET: " + str(wallet_coins) + " COINS",
 			HORIZONTAL_ALIGNMENT_CENTER,
 			screen_size.x,
-			19,
-			Color("#bdc3c7")
+			25,
+			Color("#ffe66d")
 		)
+
+	elif state == "shop":
+		draw_shop()
 
 	elif state == "playing" or state == "paused":
 		draw_rocks()
@@ -821,7 +1068,6 @@ func _draw():
 			draw_circle(coin, 20, Color("#f1c40f"))
 			draw_circle(coin, 12, Color("#ffe680"))
 
-		# Blink while temporarily protected
 		if invulnerability_timer <= 0 or int(Time.get_ticks_msec() / 100) % 2 == 0:
 			draw_character(player_position, is_moving, 1.0)
 
@@ -840,16 +1086,16 @@ func _draw():
 		draw_string(
 			ThemeDB.fallback_font,
 			Vector2(25, 100),
-			"BEST: " + str(best_score),
+			"WALLET: " + str(wallet_coins),
 			HORIZONTAL_ALIGNMENT_LEFT,
 			-1,
-			23,
-			Color("#f1c40f")
+			22,
+			Color("#ffe66d")
 		)
 
 		draw_string(
 			ThemeDB.fallback_font,
-			Vector2(25, 145),
+			Vector2(25, 140),
 			"LIVES: " + "♥".repeat(lives),
 			HORIZONTAL_ALIGNMENT_LEFT,
 			-1,
@@ -859,6 +1105,7 @@ func _draw():
 
 		draw_music_button()
 		draw_button(pause_button, "II", Color("#2980b9"))
+		draw_item_buttons()
 
 		if state == "paused":
 			draw_rect(
@@ -879,7 +1126,6 @@ func _draw():
 			draw_button(resume_button, "RESUME", Color("#27ae60"))
 			draw_button(restart_button, "RESTART", Color("#2980b9"))
 			draw_button(home_button, "MAIN MENU", Color("#c0392b"))
-
 			draw_music_button()
 
 	elif state == "game_over":
@@ -903,6 +1149,16 @@ func _draw():
 			screen_size.x,
 			34,
 			Color.WHITE
+		)
+
+		draw_string(
+			ThemeDB.fallback_font,
+			Vector2(0, screen_size.y * 0.53),
+			"WALLET: " + str(wallet_coins),
+			HORIZONTAL_ALIGNMENT_CENTER,
+			screen_size.x,
+			26,
+			Color("#ffe66d")
 		)
 
 		draw_button(restart_button, "TRY AGAIN", Color("#27ae60"))
