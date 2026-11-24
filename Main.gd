@@ -15,6 +15,9 @@ var touch_target: Variant = null
 var animation_time = 0.0
 var is_moving = false
 
+var particles: Array[Dictionary] = []
+var floating_texts: Array[Dictionary] = []
+
 var play_button = Rect2()
 var pause_button = Rect2()
 var resume_button = Rect2()
@@ -39,6 +42,9 @@ func update_buttons():
 func start_game():
     score = 0
     coins.clear()
+    particles.clear()
+    floating_texts.clear()
+
     player_position = screen_size / 2
     touch_target = null
     is_moving = false
@@ -67,10 +73,67 @@ func spawn_coin():
     )
     coins.append(coin)
 
+func create_collection_effect(pos: Vector2):
+    # Sparkle particles
+    for i in range(16):
+        var angle = randf_range(0.0, TAU)
+        var speed = randf_range(80.0, 230.0)
+
+        var velocity = Vector2(
+            cos(angle),
+            sin(angle)
+        ) * speed
+
+        var colors = [
+            Color("#ffe66d"),
+            Color("#ffffff"),
+            Color("#ffb830"),
+            Color("#fff3a3")
+        ]
+
+        particles.append({
+            "position": pos,
+            "velocity": velocity,
+            "life": 0.55,
+            "max_life": 0.55,
+            "color": colors[randi() % colors.size()],
+            "size": randf_range(3.0, 7.0)
+        })
+
+    # Floating +1 text
+    floating_texts.append({
+        "position": pos + Vector2(0, -25),
+        "life": 0.8,
+        "max_life": 0.8
+    })
+
+func update_effects(delta):
+    for i in range(particles.size() - 1, -1, -1):
+        particles[i]["life"] -= delta
+
+        particles[i]["position"] += (
+            particles[i]["velocity"] * delta
+        )
+
+        particles[i]["velocity"] *= 0.96
+
+        if particles[i]["life"] <= 0:
+            particles.remove_at(i)
+
+    for i in range(floating_texts.size() - 1, -1, -1):
+        floating_texts[i]["life"] -= delta
+
+        floating_texts[i]["position"] += Vector2(0, -65 * delta)
+
+        if floating_texts[i]["life"] <= 0:
+            floating_texts.remove_at(i)
+
 func _process(delta):
     if state != "playing":
         queue_redraw()
         return
+
+    update_effects(delta)
 
     var direction = Input.get_vector(
         "ui_left", "ui_right",
@@ -95,7 +158,12 @@ func _process(delta):
 
     for i in range(coins.size() - 1, -1, -1):
         if player_position.distance_to(coins[i]) < 50:
+            var collected_position = coins[i]
+
             coins.remove_at(i)
+
+            create_collection_effect(collected_position)
+
             score += 1
 
             if score > best_score:
@@ -225,6 +293,37 @@ func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
 
     draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
+func draw_collection_effects():
+    # Draw sparkling particles
+    for particle in particles:
+        var life_ratio = particle["life"] / particle["max_life"]
+
+        var color: Color = particle["color"]
+        color.a = life_ratio
+
+        draw_circle(
+            particle["position"],
+            particle["size"] * life_ratio,
+            color
+        )
+
+    # Draw floating +1 text
+    for floating in floating_texts:
+        var life_ratio = floating["life"] / floating["max_life"]
+
+        var color = Color("#fff36b")
+        color.a = life_ratio
+
+        draw_string(
+            ThemeDB.fallback_font,
+            floating["position"],
+            "+1",
+            HORIZONTAL_ALIGNMENT_CENTER,
+            -1,
+            32,
+            color
+        )
+
 func draw_button(rect, label, color):
     draw_rect(rect, color)
     draw_rect(rect, Color.WHITE, false, 3)
@@ -352,6 +451,9 @@ func _draw():
             draw_circle(coin, 12, Color("#ffe680"))
 
         draw_character(player_position, is_moving, 1.0)
+
+        # Collection effects
+        draw_collection_effects()
 
         draw_string(
             ThemeDB.fallback_font,
