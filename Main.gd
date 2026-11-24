@@ -4,14 +4,16 @@ extends Node2D
 var screen_size = Vector2(720, 1280)
 var player_position = Vector2.ZERO
 var player_speed = 350.0
-var player_radius = 25.0
-
 var coins: Array[Vector2] = []
+
 var score = 0
 var best_score = 0
 
 var state = "menu"
 var touch_target: Variant = null
+
+var animation_time = 0.0
+var is_moving = false
 
 var play_button = Rect2()
 var pause_button = Rect2()
@@ -39,6 +41,7 @@ func start_game():
     coins.clear()
     player_position = screen_size / 2
     touch_target = null
+    is_moving = false
 
     for i in range(10):
         spawn_coin()
@@ -78,13 +81,20 @@ func _process(delta):
         if player_position.distance_to(touch_target) > 10:
             direction = player_position.direction_to(touch_target)
 
+    is_moving = direction.length() > 0.05
+
+    if is_moving:
+        animation_time += delta * 12.0
+    else:
+        animation_time += delta * 2.0
+
     player_position += direction * player_speed * delta
 
-    player_position.x = clampf(player_position.x, 30, screen_size.x - 30)
-    player_position.y = clampf(player_position.y, 120, screen_size.y - 30)
+    player_position.x = clampf(player_position.x, 40, screen_size.x - 40)
+    player_position.y = clampf(player_position.y, 140, screen_size.y - 45)
 
     for i in range(coins.size() - 1, -1, -1):
-        if player_position.distance_to(coins[i]) < 45:
+        if player_position.distance_to(coins[i]) < 50:
             coins.remove_at(i)
             score += 1
 
@@ -139,6 +149,131 @@ func handle_press(pos):
         elif home_button.has_point(pos):
             state = "menu"
 
+func draw_character(pos: Vector2, running: bool, scale_factor: float = 1.0):
+    var swing = 0.0
+
+    if running:
+        swing = sin(animation_time) * 13.0
+
+    draw_set_transform(pos, 0.0, Vector2.ONE * scale_factor)
+
+    # Legs
+    draw_line(
+        Vector2(-8, 17),
+        Vector2(-10 + swing, 34),
+        Color("#202638"), 10
+    )
+    draw_line(
+        Vector2(8, 17),
+        Vector2(10 - swing, 34),
+        Color("#202638"), 10
+    )
+
+    # Red sneakers
+    draw_line(
+        Vector2(-10 + swing, 34),
+        Vector2(-19 + swing, 39),
+        Color("#e74c3c"), 12
+    )
+    draw_line(
+        Vector2(10 - swing, 34),
+        Vector2(19 - swing, 39),
+        Color("#e74c3c"), 12
+    )
+
+    draw_line(
+        Vector2(-20 + swing, 43),
+        Vector2(-10 + swing, 43),
+        Color.WHITE, 3
+    )
+    draw_line(
+        Vector2(10 - swing, 43),
+        Vector2(20 - swing, 43),
+        Color.WHITE, 3
+    )
+
+    # Arms
+    draw_line(
+        Vector2(-14, -7),
+        Vector2(-24 - swing * 0.5, 7),
+        Color("#b92e28"), 11
+    )
+    draw_line(
+        Vector2(14, -7),
+        Vector2(24 + swing * 0.5, 7),
+        Color("#b92e28"), 11
+    )
+
+    # Hands
+    draw_circle(Vector2(-24 - swing * 0.5, 8), 6, Color("#ffd0aa"))
+    draw_circle(Vector2(24 + swing * 0.5, 8), 6, Color("#ffd0aa"))
+
+    # Hoodie body
+    var body = PackedVector2Array([
+        Vector2(-17, -15),
+        Vector2(17, -15),
+        Vector2(15, 20),
+        Vector2(-15, 20)
+    ])
+    draw_colored_polygon(body, Color("#e53935"))
+
+    draw_line(Vector2(0, -12), Vector2(0, 18), Color("#ff8a80"), 2)
+
+    # Hood
+    draw_arc(
+        Vector2(0, -9),
+        18,
+        PI,
+        TAU,
+        32,
+        Color("#a92725"),
+        5
+    )
+
+    # Ears
+    draw_circle(Vector2(-18, -31), 6, Color("#ffd0aa"))
+    draw_circle(Vector2(18, -31), 6, Color("#ffd0aa"))
+
+    # Face
+    draw_circle(Vector2(0, -32), 19, Color("#ffd0aa"))
+
+    # Hair
+    var hair = PackedVector2Array([
+        Vector2(-19, -34),
+        Vector2(-23, -47),
+        Vector2(-12, -43),
+        Vector2(-7, -54),
+        Vector2(1, -46),
+        Vector2(10, -53),
+        Vector2(13, -43),
+        Vector2(24, -45),
+        Vector2(20, -32),
+        Vector2(14, -28),
+        Vector2(-15, -28)
+    ])
+    draw_colored_polygon(hair, Color("#39231d"))
+
+    # Eyes
+    draw_circle(Vector2(7, -32), 3.5, Color("#171717"))
+    draw_circle(Vector2(-6, -32), 3.5, Color("#171717"))
+
+    # Eye highlights
+    draw_circle(Vector2(8, -34), 1.2, Color.WHITE)
+    draw_circle(Vector2(-5, -34), 1.2, Color.WHITE)
+
+    # Smile
+    draw_arc(
+        Vector2(2, -23),
+        5,
+        0.2,
+        PI - 0.2,
+        12,
+        Color("#9b5142"),
+        1.5
+    )
+
+    draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
 func draw_button(rect, label, color):
     draw_rect(rect, color)
     draw_rect(rect, Color.WHITE, false, 3)
@@ -189,7 +324,12 @@ func _draw():
             Color("#f1c40f")
         )
 
-        draw_circle(Vector2(center, screen_size.y * 0.39), 35, Color("#3498db"))
+        draw_character(
+            Vector2(center, screen_size.y * 0.39),
+            true,
+            0.9
+        )
+
         draw_circle(Vector2(center - 65, screen_size.y * 0.39), 18, Color("#f1c40f"))
         draw_circle(Vector2(center + 65, screen_size.y * 0.39), 18, Color("#f1c40f"))
 
@@ -220,8 +360,7 @@ func _draw():
             draw_circle(coin, 20, Color("#f1c40f"))
             draw_circle(coin, 12, Color("#ffe680"))
 
-        draw_circle(player_position, player_radius, Color("#3498db"))
-        draw_circle(player_position, 13, Color("#85d6ff"))
+        draw_character(player_position, is_moving, 1.0)
 
         draw_string(
             ThemeDB.fallback_font,
