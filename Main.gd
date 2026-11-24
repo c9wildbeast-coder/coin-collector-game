@@ -104,6 +104,7 @@ var maze_rows = 13
 var maze_cell_size = 40.0
 
 var maze_grid: Array = []
+var maze_seen: Array = []
 var maze_origin = Vector2.ZERO
 
 var maze_player_cell = Vector2i(1, 1)
@@ -112,6 +113,7 @@ var maze_player_position = Vector2.ZERO
 
 var maze_move_cooldown = 0.0
 var maze_reward = 0
+var maze_vision_radius = 99
 
 # =====================================================
 # BUTTONS
@@ -713,8 +715,21 @@ func get_maze_difficulty() -> String:
 		return "MODERATE"
 	elif maze_level <= 60:
 		return "HARD"
-	else:
+	elif maze_level <= 80:
 		return "HARDER"
+	else:
+		return "EXTREME"
+
+
+func get_maze_vision_radius() -> int:
+	if maze_level <= 40:
+		return 99
+	elif maze_level <= 60:
+		return 3
+	elif maze_level <= 80:
+		return 2
+	else:
+		return 1
 
 
 func start_maze():
@@ -733,6 +748,8 @@ func start_maze():
 
 	stop_joystick()
 
+	reveal_maze_area(maze_player_cell)
+
 	change_state("maze_playing")
 
 
@@ -750,39 +767,50 @@ func generate_maze():
 		maze_rows = 15
 
 	elif maze_level <= 60:
-		maze_cols = 13
-		maze_rows = 17
-
-	else:
 		maze_cols = 15
 		maze_rows = 19
 
+	elif maze_level <= 80:
+		maze_cols = 17
+		maze_rows = 21
+
+	else:
+		maze_cols = 19
+		maze_rows = 23
+
 	maze_grid.clear()
+	maze_seen.clear()
+
+	maze_vision_radius = get_maze_vision_radius()
 
 	for y in range(maze_rows):
 		var row: Array = []
+		var seen_row: Array = []
 
 		for x in range(maze_cols):
 			row.append(1)
+			seen_row.append(false)
 
 		maze_grid.append(row)
+		maze_seen.append(seen_row)
 
 	var start = Vector2i(1, 1)
 
-	maze_grid[1][1] = 0
+	maze_grid[start.y][start.x] = 0
 
 	var stack: Array[Vector2i] = [start]
 
+	var directions = [
+		Vector2i(0, -2),
+		Vector2i(0, 2),
+		Vector2i(-2, 0),
+		Vector2i(2, 0)
+	]
+
+	# Create the connected maze using depth-first search.
 	while not stack.is_empty():
 		var current = stack.back()
 		var neighbors: Array[Vector2i] = []
-
-		var directions = [
-			Vector2i(0, -2),
-			Vector2i(0, 2),
-			Vector2i(-2, 0),
-			Vector2i(2, 0)
-		]
 
 		for direction in directions:
 			var next = current + direction
@@ -794,9 +822,9 @@ func generate_maze():
 
 		if neighbors.is_empty():
 			stack.pop_back()
-
 		else:
 			var next = neighbors[randi() % neighbors.size()]
+
 			var middle = Vector2i(
 				int((current.x + next.x) / 2),
 				int((current.y + next.y) / 2)
@@ -807,11 +835,37 @@ func generate_maze():
 
 			stack.append(next)
 
-	maze_exit_cell = Vector2i(
-		maze_cols - 2,
-		maze_rows - 2
-	)
+	# The exit must be on a cell that the generator has carved.
+	maze_exit_cell = Vector2i(maze_cols - 2, maze_rows - 2)
 
+	if maze_exit_cell.x % 2 == 0:
+		maze_exit_cell.x -= 1
+
+	if maze_exit_cell.y % 2 == 0:
+		maze_exit_cell.y -= 1
+
+	maze_grid[maze_exit_cell.y][maze_exit_cell.x] = 0
+
+	# Add extra openings to create loops and alternate routes.
+	# More openings are added as levels become harder.
+	var extra_openings = 0
+
+	if maze_level <= 20:
+		extra_openings = 0
+	elif maze_level <= 40:
+		extra_openings = 5
+	elif maze_level <= 60:
+		extra_openings = 12
+	elif maze_level <= 80:
+		extra_openings = 18
+	else:
+		extra_openings = 25
+
+	for i in range(extra_openings):
+		open_random_maze_wall()
+
+	# Keep the exit and starting area clear.
+	maze_grid[1][1] = 0
 	maze_grid[maze_exit_cell.y][maze_exit_cell.x] = 0
 
 	maze_cell_size = minf(
@@ -828,11 +882,68 @@ func generate_maze():
 	)
 
 
+func open_random_maze_wall():
+	var possible_walls: Array[Vector2i] = []
+
+	for y in range(1, maze_rows - 1):
+		for x in range(1, maze_cols - 1):
+			if maze_grid[y][x] != 1:
+				continue
+
+			var horizontal = (
+				maze_grid[y][x - 1] == 0
+				and maze_grid[y][x + 1] == 0
+			)
+
+			var vertical = (
+				maze_grid[y - 1][x] == 0
+				and maze_grid[y + 1][x] == 0
+			)
+
+			if horizontal or vertical:
+				possible_walls.append(Vector2i(x, y))
+
+	if not possible_walls.is_empty():
+		var chosen = possible_walls[randi() % possible_walls.size()]
+		maze_grid[chosen.y][chosen.x] = 0
+
+
 func maze_cell_center(cell: Vector2i) -> Vector2:
 	return maze_origin + Vector2(
 		(cell.x + 0.5) * maze_cell_size,
 		(cell.y + 0.5) * maze_cell_size
 	)
+
+
+# =====================================================
+# MAZE FOG OF WAR
+# =====================================================
+
+func reveal_maze_area(center: Vector2i):
+	if maze_seen.is_empty():
+		return
+
+	for y in range(maze_rows):
+		for x in range(maze_cols):
+			var cell = Vector2i(x, y)
+
+			if maze_vision_radius >= 99:
+				maze_seen[y][x] = true
+			elif cell.distance_to(center) <= maze_vision_radius:
+				maze_seen[y][x] = true
+
+
+func is_maze_cell_visible(cell: Vector2i) -> bool:
+	if maze_vision_radius >= 99:
+		return true
+
+	if cell.x < 0 or cell.x >= maze_cols:
+		return false
+
+	if cell.y < 0 or cell.y >= maze_rows:
+		return false
+
+	return maze_seen[cell.y][cell.x]
 
 
 # =====================================================
@@ -853,6 +964,8 @@ func move_maze_player(direction: Vector2i):
 
 	maze_player_cell = next_cell
 	maze_player_position = maze_cell_center(maze_player_cell)
+
+	reveal_maze_area(maze_player_cell)
 
 	play_button_sound()
 
@@ -1890,6 +2003,8 @@ func draw_maze():
 
 	for y in range(maze_rows):
 		for x in range(maze_cols):
+			var cell = Vector2i(x, y)
+
 			var cell_rect = Rect2(
 				maze_origin + Vector2(
 					x * maze_cell_size,
@@ -1898,36 +2013,41 @@ func draw_maze():
 				Vector2(maze_cell_size, maze_cell_size)
 			)
 
+			if not is_maze_cell_visible(cell):
+				draw_rect(cell_rect, Color("#101d2b"))
+				continue
+
 			if maze_grid[y][x] == 1:
 				draw_rect(cell_rect, Color("#35566b"))
 				draw_rect(cell_rect, Color("#52778c"), false, 2)
 			else:
 				draw_rect(cell_rect, Color("#d6e9d0"))
 
-	# Exit gate
-	var exit_position = maze_cell_center(maze_exit_cell)
+	# Draw the exit only when it has been discovered.
+	if is_maze_cell_visible(maze_exit_cell):
+		var exit_position = maze_cell_center(maze_exit_cell)
 
-	draw_circle(
-		exit_position,
-		maze_cell_size * 0.38,
-		Color("#20bf6b")
-	)
+		draw_circle(
+			exit_position,
+			maze_cell_size * 0.38,
+			Color("#20bf6b")
+		)
 
-	draw_circle(
-		exit_position,
-		maze_cell_size * 0.25,
-		Color("#aaffc3")
-	)
+		draw_circle(
+			exit_position,
+			maze_cell_size * 0.25,
+			Color("#aaffc3")
+		)
 
-	draw_string(
-		ThemeDB.fallback_font,
-		exit_position + Vector2(-8, 7),
-		"E",
-		HORIZONTAL_ALIGNMENT_LEFT,
-		-1,
-		18,
-		Color("#14532d")
-	)
+		draw_string(
+			ThemeDB.fallback_font,
+			exit_position + Vector2(-8, 7),
+			"E",
+			HORIZONTAL_ALIGNMENT_LEFT,
+			-1,
+			18,
+			Color("#14532d")
+		)
 
 	# Player
 	draw_character(
@@ -1972,6 +2092,17 @@ func draw_maze_hud():
 		20,
 		Color("#aaffc3")
 	)
+
+	if maze_vision_radius < 99:
+		draw_string(
+			ThemeDB.fallback_font,
+			Vector2(0, 175),
+			"FOG OF WAR - EXPLORE TO REVEAL",
+			HORIZONTAL_ALIGNMENT_CENTER,
+			screen_size.x,
+			15,
+			Color("#bcecff")
+		)
 
 
 func draw_maze_menu():
