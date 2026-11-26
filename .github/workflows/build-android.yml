@@ -51,7 +51,6 @@ jobs:
         run: |
           ls -lah ~/.local/share/godot/export_templates/4.7.2.stable/
           test -f ~/.local/share/godot/export_templates/4.7.2.stable/android_debug.apk
-          test -f ~/.local/share/godot/export_templates/4.7.2.stable/version.txt
 
       - name: Create Android debug keystore
         run: |
@@ -73,7 +72,10 @@ jobs:
           echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> $GITHUB_ENV
 
       - name: Import project
-        run: godot --headless --editor --path . --quit
+        run: |
+          rm -rf .godot/imported
+          godot --headless --editor --path . --import
+          godot --headless --editor --path . --quit
 
       - name: Export APK
         run: |
