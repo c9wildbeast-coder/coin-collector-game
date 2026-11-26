@@ -22,14 +22,13 @@ jobs:
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
-          cmdline-tools-version: 11076708
+          packages: 'platform-tools'
 
       - name: Install Android SDK packages
         run: |
-          sdkmanager "platform-tools" \
-            "platforms;android-35" \
+          sdkmanager "platforms;android-35" \
             "build-tools;35.0.1" \
             "ndk;28.1.13356709"
 
